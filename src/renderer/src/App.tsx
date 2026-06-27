@@ -1073,13 +1073,14 @@ function roundRectPath(
 /** Draw a number badge circle on a 2D canvas context */
 function drawBadgeCtx(
   ctx: CanvasRenderingContext2D,
-  bx: number, by: number, r: number, n: number, fill: string
+  bx: number, by: number, r: number, n: number, fill: string,
+  fontSz: number = BADGE_FONT_VR
 ): void {
   ctx.beginPath()
   ctx.arc(bx, by, r, 0, Math.PI * 2)
   ctx.fillStyle = fill
   ctx.fill()
-  ctx.font = `700 ${BADGE_FONT_VR}px -apple-system, BlinkMacSystemFont, sans-serif`
+  ctx.font = `700 ${fontSz}px -apple-system, BlinkMacSystemFont, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillStyle = badgeTextFill(fill)
@@ -1104,6 +1105,12 @@ function buildAnnotatedCanvas(
       const ctx = canvas.getContext('2d')!
       ctx.drawImage(img, 0, 0)
 
+      // Scale visual constants from screen-px to image-px (Retina screenshots are 2x)
+      const dpr = window.devicePixelRatio || 1
+      const circleVR = CIRCLE_VR * dpr
+      const badgeVR = BADGE_VR * dpr
+      const badgeFontVR = BADGE_FONT_VR * dpr
+
       for (const ann of annotations) {
         const { stroke, halo } = getAdaptiveColors(offscreen, ann)
 
@@ -1112,7 +1119,7 @@ function buildAnnotatedCanvas(
         ctx.lineJoin = 'round'
 
         if (ann.kind === 'circle') {
-          const r = CIRCLE_VR
+          const r = circleVR
           // halo ring
           ctx.beginPath(); ctx.arc(ann.x, ann.y, r, 0, Math.PI * 2)
           ctx.strokeStyle = halo; ctx.lineWidth = HALO_STROKE_W; ctx.stroke()
@@ -1120,7 +1127,7 @@ function buildAnnotatedCanvas(
           ctx.beginPath(); ctx.arc(ann.x, ann.y, r, 0, Math.PI * 2)
           ctx.strokeStyle = stroke; ctx.lineWidth = MARKER_STROKE_W; ctx.stroke()
           // badge (adjacent: top-right of circle)
-          drawBadgeCtx(ctx, ann.x + r + BADGE_VR * 0.6, ann.y - r - BADGE_VR * 0.6, BADGE_VR, ann.n, stroke)
+          drawBadgeCtx(ctx, ann.x + r + badgeVR * 0.6, ann.y - r - badgeVR * 0.6, badgeVR, ann.n, stroke, badgeFontVR)
         } else {
           // halo rect
           ctx.beginPath(); roundRectPath(ctx, ann.x, ann.y, ann.w, ann.h, RECT_RX)
@@ -1129,7 +1136,7 @@ function buildAnnotatedCanvas(
           ctx.beginPath(); roundRectPath(ctx, ann.x, ann.y, ann.w, ann.h, RECT_RX)
           ctx.strokeStyle = stroke; ctx.lineWidth = MARKER_STROKE_W; ctx.stroke()
           // badge (adjacent: top-right of rect)
-          drawBadgeCtx(ctx, ann.x + ann.w + BADGE_VR * 0.6, ann.y - BADGE_VR * 0.6, BADGE_VR, ann.n, stroke)
+          drawBadgeCtx(ctx, ann.x + ann.w + badgeVR * 0.6, ann.y - badgeVR * 0.6, badgeVR, ann.n, stroke, badgeFontVR)
         }
 
         ctx.restore()
@@ -1422,7 +1429,7 @@ export default function App() {
                         background: 'transparent',
                         border: '1px solid #38383e',
                         borderRadius: 6,
-                        color: '#888890',  // SC 1.4.3: ≥4.5:1 on #232325 ✓
+                        color: '#909098',  // SC 1.4.3: ≥4.5:1 on #232325 (4.95:1) ✓
                         fontSize: 11,
                         padding: '4px 10px',
                         cursor: 'pointer',
@@ -1434,7 +1441,7 @@ export default function App() {
                       }}
                       onMouseLeave={e => {
                         e.currentTarget.style.borderColor = '#38383e'
-                        e.currentTarget.style.color = '#888890'
+                        e.currentTarget.style.color = '#909098'
                       }}
                     >
                       <X size={11} strokeWidth={2} />
@@ -1463,7 +1470,7 @@ export default function App() {
                 fontWeight: 600,
                 letterSpacing: '0.06em',
                 textTransform: 'uppercase',
-                color: '#606068',
+                color: '#909098',  // SC 1.4.3: ≥4.5:1 on #1e1e22 (4.95:1) ✓
                 marginBottom: 6
               }}
             >
