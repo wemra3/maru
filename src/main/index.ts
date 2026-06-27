@@ -1,5 +1,6 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
+import { exec } from 'child_process'
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -23,6 +24,22 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
+
+// IPC: 新規ウィンドウ (#10)
+ipcMain.handle('new-window', () => {
+  createWindow()
+})
+
+// IPC: インタラクティブスクリーンキャプチャ (#9)
+// screencapture -i -c : 範囲選択 → クリップボードに書き込み
+ipcMain.handle('capture-screen', () => {
+  return new Promise<void>((resolve, reject) => {
+    exec('screencapture -i -c', (err) => {
+      if (err) reject(err)
+      else resolve()
+    })
+  })
+})
 
 app.whenReady().then(() => {
   createWindow()

@@ -6,6 +6,7 @@ import React, {
   useImperativeHandle,
   useCallback
 } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ClipboardPaste,
   ZoomIn,
@@ -18,8 +19,13 @@ import {
   Layers,
   Pipette,
   Copy,
-  Check
+  Check,
+  Camera,
+  Mic,
+  MicOff
 } from 'lucide-react'
+
+// maruAPI / webkitSpeechRecognition の型は src/renderer/src/env.d.ts で宣言済み
 
 // Electron drag region needs a vendor-prefixed CSS property not in React's CSSProperties
 type WithDragRegion = React.CSSProperties & { WebkitAppRegion?: 'drag' | 'no-drag' }
@@ -102,6 +108,8 @@ export interface Annotation {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+// TODO #11: 円密集時の判別性向上 — 現状のガター+L字フォールバックで一旦許容
+
 const CIRCLE_VR = 20       // circle visual radius (screen px)
 const BADGE_VR = 9         // badge visual radius (screen px)
 const BADGE_FONT_VR = 10   // badge font size (screen px)
@@ -135,9 +143,22 @@ let _tipCounter = 0
 
 function Tooltip({ label, children }: TooltipProps) {
   const [visible, setVisible] = useState(false)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const wrapRef = useRef<HTMLDivElement>(null)
   const tipIdRef = useRef<string>('')
   if (!tipIdRef.current) tipIdRef.current = `tip-${++_tipCounter}`
   const tipId = tipIdRef.current
+
+  function showTip(): void {
+    if (wrapRef.current) {
+      const rect = wrapRef.current.getBoundingClientRect()
+      setPos({
+        top: rect.top - 6,   // will be adjusted via transform
+        left: rect.left + rect.width / 2
+      })
+    }
+    setVisible(true)
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const child = React.Children.only(children) as React.ReactElement<any>
@@ -146,24 +167,26 @@ function Tooltip({ label, children }: TooltipProps) {
 
   return (
     <div
+      ref={wrapRef}
       style={{ position: 'relative', display: 'inline-flex' }}
-      onMouseEnter={() => setVisible(true)}
+      onMouseEnter={showTip}
       onMouseLeave={() => setVisible(false)}
-      onFocus={() => setVisible(true)}
+      onFocus={showTip}
       onBlur={() => setVisible(false)}
       // SC 1.4.13: ESC dismisses tooltip without moving pointer/focus
       onKeyDown={e => { if (e.key === 'Escape') setVisible(false) }}
     >
       {childWithAria}
-      {visible && (
+      {visible && createPortal(
         <div
           id={tipId}
           role="tooltip"
           style={{
-            position: 'absolute',
-            bottom: 'calc(100% + 6px)',
-            left: '50%',
-            transform: 'translateX(-50%)',
+            position: 'fixed',
+            top: pos.top,
+            left: pos.left,
+            transform: 'translate(-50%, -100%)',
+            marginTop: -6,
             background: '#3c3c40',
             color: '#e0e0e4',
             fontSize: 11,
@@ -171,14 +194,16 @@ function Tooltip({ label, children }: TooltipProps) {
             padding: '3px 8px',
             borderRadius: 4,
             whiteSpace: 'nowrap',
-            // SC 1.4.13: tooltip must be hoverable (pointerEvents not none)
-            zIndex: 200,
+            // SC 1.4.13: tooltip must be hoverable
+            pointerEvents: 'none',
+            zIndex: 9999,
             boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
             border: '1px solid #4a4a50'
           }}
         >
           {label}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
@@ -641,6 +666,7 @@ interface CanvasPaneProps {
   annotationTool: boolean
   onAnnotationsChange(anns: Annotation[]): void
   onAnnotationAdded(n: number): void
+  onMaxReached(): void  // #6
   eyedropperTool: boolean
   onPickColor(hex: string): void
   onOffscreenReady(canvas: HTMLCanvasElement): void
@@ -649,7 +675,7 @@ interface CanvasPaneProps {
 const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function CanvasPane(
   {
     imageSrc, onPaste, annotations, annotationTool, onAnnotationsChange, onAnnotationAdded,
-    eyedropperTool, onPickColor, onOffscreenReady
+    onMaxReached, eyedropperTool, onPickColor, onOffscreenReady
   },
   ref
 ) {
@@ -717,7 +743,8 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
     if (!el) return
     function onWheel(e: WheelEvent): void {
       e.preventDefault()
-      const factor = e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP
+      // ホイールは小さい刻みで (#2); ボタンズームは ZOOM_STEP=1.25 のまま
+      const factor = e.deltaY < 0 ? 1.06 : 1 / 1.06
       const prev = scaleRef.current
       const ns = Math.min(Math.max(prev * factor, ZOOM_MIN), ZOOM_MAX)
       const rect = el!.getBoundingClientRect()
@@ -832,11 +859,17 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
         return
       }
 
+      // #4: クリック位置が画像範囲外なら注釈開始しない
+      const imgClick = screenToImg(sx, sy)
+      const { w: imgW, h: imgH } = imgSizeRef.current
+      if (imgW > 0 && imgH > 0) {
+        if (imgClick.x < 0 || imgClick.x > imgW || imgClick.y < 0 || imgClick.y > imgH) return
+      }
+
       // Start new annotation draw
-      const img = screenToImg(sx, sy)
       drawRef.current = {
-        startImgX: img.x, startImgY: img.y,
-        curImgX: img.x, curImgY: img.y,
+        startImgX: imgClick.x, startImgY: imgClick.y,
+        curImgX: imgClick.x, curImgY: imgClick.y,
         dragging: false
       }
       drawStartScreenRef.current = { sx, sy }
@@ -902,7 +935,10 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
       drawRef.current = null
       setPreview(null)
 
-      if (annotations.length >= MAX_ANNOTATIONS) return
+      if (annotations.length >= MAX_ANNOTATIONS) {
+        onMaxReached()  // #6
+        return
+      }
 
       const pane = paneRef.current!
       const rect = pane.getBoundingClientRect()
@@ -917,16 +953,26 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
       const n = annotations.length + 1
       const id = `ann-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 
+      const { w: imgW, h: imgH } = imgSizeRef.current
+
       let newAnn: Annotation
       if (!ds.dragging || dist < DRAG_MIN_PX) {
-        // Circle
-        newAnn = { id, n, kind: 'circle', x: ds.startImgX, y: ds.startImgY, w: 0, h: 0, text: '' }
+        // Circle — #4: 中心を画像内にクランプ
+        const cx = imgW > 0 ? Math.min(Math.max(ds.startImgX, 0), imgW) : ds.startImgX
+        const cy = imgH > 0 ? Math.min(Math.max(ds.startImgY, 0), imgH) : ds.startImgY
+        newAnn = { id, n, kind: 'circle', x: cx, y: cy, w: 0, h: 0, text: '' }
       } else {
-        // Rect
-        const x = Math.min(ds.startImgX, img.x)
-        const y = Math.min(ds.startImgY, img.y)
-        const w = Math.abs(img.x - ds.startImgX)
-        const h = Math.abs(img.y - ds.startImgY)
+        // Rect — #4: 画像内にクランプ
+        let x = Math.min(ds.startImgX, img.x)
+        let y = Math.min(ds.startImgY, img.y)
+        let w = Math.abs(img.x - ds.startImgX)
+        let h = Math.abs(img.y - ds.startImgY)
+        if (imgW > 0 && imgH > 0) {
+          x = Math.max(0, Math.min(x, imgW))
+          y = Math.max(0, Math.min(y, imgH))
+          w = Math.min(w, imgW - x)
+          h = Math.min(h, imgH - y)
+        }
         // Skip degenerate rects
         if (w < 4 || h < 4) return
         newAnn = { id, n, kind: 'rect', x, y, w, h, text: '' }
@@ -1100,9 +1146,38 @@ interface AnnRowProps {
   ann: Annotation
   textareaRef: (el: HTMLTextAreaElement | null) => void
   onChange: (id: string, text: string) => void
+  onDelete: (id: string) => void  // #7
 }
 
-function AnnRow({ ann, textareaRef, onChange }: AnnRowProps) {
+function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
+  // #8: 音声入力 (webkitSpeechRecognition は any 型)
+  const [listening, setListening] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recRef = useRef<any>(null)
+  const speechAvailable = typeof window !== 'undefined' && 'webkitSpeechRecognition' in window
+
+  function toggleMic(): void {
+    if (listening) {
+      recRef.current?.stop()
+      setListening(false)
+      return
+    }
+    const Rec = window.webkitSpeechRecognition
+    const rec = new Rec()
+    rec.lang = 'ja-JP'
+    rec.interimResults = false
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rec.onresult = (ev: any) => {
+      const transcript = ev.results[0][0].transcript as string
+      onChange(ann.id, ann.text ? ann.text + ' ' + transcript : transcript)
+    }
+    rec.onend = () => setListening(false)
+    rec.onerror = () => setListening(false)
+    recRef.current = rec
+    rec.start()
+    setListening(true)
+  }
+
   return (
     <div
       style={{
@@ -1165,6 +1240,69 @@ function AnnRow({ ann, textareaRef, onChange }: AnnRowProps) {
           e.currentTarget.style.outline = 'none'
         }}
       />
+
+      {/* 行右側のアクションボタン群 */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
+        {/* #7: 削除ボタン */}
+        <Tooltip label="この注釈を削除">
+          <button
+            aria-label={`注釈 ${ann.n} を削除`}
+            onClick={() => onDelete(ann.id)}
+            style={{
+              width: 22,
+              height: 22,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'transparent',
+              border: '1px solid #38383e',
+              borderRadius: 4,
+              color: '#888890',
+              cursor: 'pointer',
+              padding: 0
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.color = '#e07c00'
+              e.currentTarget.style.borderColor = '#5a3e00'
+              e.currentTarget.style.background = '#2a2000'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.color = '#888890'
+              e.currentTarget.style.borderColor = '#38383e'
+              e.currentTarget.style.background = 'transparent'
+            }}
+          >
+            <X size={11} strokeWidth={2} />
+          </button>
+        </Tooltip>
+
+        {/* #8: 音声入力ボタン */}
+        {speechAvailable && (
+          <Tooltip label={listening ? '録音停止' : '音声入力'}>
+            <button
+              aria-label={listening ? '音声入力を停止' : '音声入力を開始'}
+              onClick={toggleMic}
+              style={{
+                width: 22,
+                height: 22,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: listening ? '#2a1040' : 'transparent',
+                border: `1px solid ${listening ? '#7040c0' : '#38383e'}`,
+                borderRadius: 4,
+                color: listening ? '#c080ff' : '#888890',
+                cursor: 'pointer',
+                padding: 0
+              }}
+              onMouseEnter={e => { if (!listening) e.currentTarget.style.color = '#c8c8d0' }}
+              onMouseLeave={e => { if (!listening) e.currentTarget.style.color = '#888890' }}
+            >
+              {listening ? <MicOff size={11} strokeWidth={2} /> : <Mic size={11} strokeWidth={2} />}
+            </button>
+          </Tooltip>
+        )}
+      </div>
     </div>
   )
 }
@@ -1221,6 +1359,7 @@ function ColorsPanel({ paletteColors, pickedColor }: ColorsPanelProps) {
       </div>
 
       {/* Section header */}
+      {/* #5: "Colors" テキスト削除 → Pipette アイコンのみ */}
       <div
         style={{
           fontSize: 10,
@@ -1235,7 +1374,6 @@ function ColorsPanel({ paletteColors, pickedColor }: ColorsPanelProps) {
         }}
       >
         <Pipette size={10} strokeWidth={2} />
-        Colors
       </div>
 
       {/* Picked color */}
@@ -1453,11 +1591,30 @@ export default function App() {
   const [pendingFocusN, setPendingFocusN] = useState<number | null>(null)
   const inspectorScrollRef = useRef<HTMLDivElement>(null)
 
+  // #6: 上限トースト
+  const [maxReached, setMaxReached] = useState(false)
+  const maxReachedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function showMaxReached(): void {
+    setMaxReached(true)
+    if (maxReachedTimerRef.current) clearTimeout(maxReachedTimerRef.current)
+    maxReachedTimerRef.current = setTimeout(() => setMaxReached(false), 2000)
+  }
+
+  // #3: コピーボタンのフィードバック状態
+  const [copiedKind, setCopiedKind] = useState<'text' | 'image' | 'all' | null>(null)
+  const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function triggerCopyFeedback(kind: 'text' | 'image' | 'all'): void {
+    setCopiedKind(kind)
+    if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current)
+    copyFeedbackTimerRef.current = setTimeout(() => setCopiedKind(null), 1500)
+  }
+
   // ─── Copy handlers ──────────────────────────────────────────────────────────
 
   function handleCopyText(): void {
     const text = buildTextOutput(annotations, globalText)
     window.maruAPI?.writeClipboardText(text)
+    triggerCopyFeedback('text')  // #3
   }
 
   async function handleCopyImage(): Promise<void> {
@@ -1465,6 +1622,7 @@ export default function App() {
     const offscreen = canvasPaneRef.current?.getOffscreen() ?? null
     const dataUrl = await buildAnnotatedCanvas(imageSrc, annotations, offscreen)
     window.maruAPI?.writeClipboardImage(dataUrl)
+    triggerCopyFeedback('image')  // #3
   }
 
   async function handleCopyAll(): Promise<void> {
@@ -1473,6 +1631,7 @@ export default function App() {
     const dataUrl = await buildAnnotatedCanvas(imageSrc, annotations, offscreen)
     const text = buildTextOutput(annotations, globalText)
     window.maruAPI?.writeClipboardBoth(dataUrl, text)
+    triggerCopyFeedback('all')  // #3
   }
 
   function handlePaste(): void {
@@ -1485,10 +1644,30 @@ export default function App() {
     }
   }
 
-  // ⌘V global keyboard shortcut
+  // #7: 注釈個別削除（採番詰め直し）
+  function handleDeleteAnnotation(id: string): void {
+    setAnnotations(prev =>
+      prev.filter(a => a.id !== id).map((a, i) => ({ ...a, n: i + 1 }))
+    )
+  }
+
+  // #9: スクショキャプチャ → クリップボード → 新窓に貼り付け
+  async function handleCapture(): Promise<void> {
+    await window.maruAPI?.captureScreen()
+    // screencapture 完了後にクリップボードから読んで新窓を開く
+    await window.maruAPI?.createNewWindow()
+    // 新窓の CanvasPane が起動したら ⌘V で貼り付けてもらう（または起動後 autoload は未実装）
+  }
+
+  // ⌘V / ⌘N global keyboard shortcuts
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {
       if ((e.metaKey || e.ctrlKey) && e.key === 'v') handlePaste()
+      // #10: ⌘N で新規ウィンドウ
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+        e.preventDefault()
+        void window.maruAPI?.createNewWindow()
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -1641,6 +1820,15 @@ export default function App() {
             onClick={() => { void handleCopyAll() }}
             disabled={!imageSrc}
           />
+
+          <ToolbarDivider />
+
+          {/* #9: スクリーンキャプチャ */}
+          <IconButton
+            icon={<Camera size={15} strokeWidth={1.8} />}
+            label="スクリーンショットを撮影して新規ウィンドウに開く"
+            onClick={() => { void handleCapture() }}
+          />
         </div>
       </div>
 
@@ -1655,6 +1843,7 @@ export default function App() {
           annotationTool={annotationTool}
           onAnnotationsChange={setAnnotations}
           onAnnotationAdded={n => setPendingFocusN(n)}
+          onMaxReached={showMaxReached}
           eyedropperTool={eyedropperTool}
           onPickColor={hex => { setPickedColor(hex); window.maruAPI?.writeClipboardText(hex) }}
           onOffscreenReady={handleOffscreenReady}
@@ -1677,7 +1866,7 @@ export default function App() {
           {/* Inspector header */}
           <div
             style={{
-              padding: '10px 14px',
+              padding: '8px 10px 8px 14px',
               borderBottom: '1px solid #2e2e32',
               fontSize: 11,
               fontWeight: 600,
@@ -1686,26 +1875,95 @@ export default function App() {
               color: '#a0a0a8',
               display: 'flex',
               alignItems: 'center',
-              gap: 6,
+              gap: 4,
               flexShrink: 0
             }}
           >
+            {/* #5: "Inspector" テキスト削除 → Minus アイコンのみ */}
             <Minus size={10} strokeWidth={2} />
-            Inspector
-            {annotations.length > 0 && (
-              <span
-                style={{
-                  marginLeft: 'auto',
-                  fontSize: 10,
-                  color: '#909098',  // WCAG 1.4.3: ≈5:1 on #232325 ✓
-                  fontWeight: 400,
-                  letterSpacing: 0,
-                  textTransform: 'none'
-                }}
-              >
-                {annotations.length}/{MAX_ANNOTATIONS}
+
+            {/* #6: 上限到達トースト */}
+            {maxReached && (
+              <span style={{ fontSize: 10, color: '#e07c00', fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>
+                これ以上追加できません（最大{MAX_ANNOTATIONS}）
               </span>
             )}
+
+            {/* #3: インスペクタ内コピー3種ボタン */}
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 3 }}>
+              <Tooltip label="テキストのみコピー">
+                <button
+                  aria-label="テキストのみコピー"
+                  onClick={handleCopyText}
+                  disabled={!imageSrc}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'transparent',
+                    border: '1px solid #38383e',
+                    borderRadius: 4,
+                    color: imageSrc ? (copiedKind === 'text' ? '#60c060' : '#888890') : '#44444a',
+                    cursor: imageSrc ? 'pointer' : 'default',
+                    padding: 0
+                  }}
+                  onMouseEnter={e => { if (imageSrc && copiedKind !== 'text') e.currentTarget.style.color = '#c8c8d0' }}
+                  onMouseLeave={e => { if (imageSrc && copiedKind !== 'text') e.currentTarget.style.color = '#888890' }}
+                >
+                  {copiedKind === 'text' ? <Check size={11} strokeWidth={2.5} /> : <Type size={11} strokeWidth={1.8} />}
+                </button>
+              </Tooltip>
+              <Tooltip label="注釈付き画像をコピー">
+                <button
+                  aria-label="注釈付き画像をコピー"
+                  onClick={() => { void handleCopyImage() }}
+                  disabled={!imageSrc}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'transparent',
+                    border: '1px solid #38383e',
+                    borderRadius: 4,
+                    color: imageSrc ? (copiedKind === 'image' ? '#60c060' : '#888890') : '#44444a',
+                    cursor: imageSrc ? 'pointer' : 'default',
+                    padding: 0
+                  }}
+                  onMouseEnter={e => { if (imageSrc && copiedKind !== 'image') e.currentTarget.style.color = '#c8c8d0' }}
+                  onMouseLeave={e => { if (imageSrc && copiedKind !== 'image') e.currentTarget.style.color = '#888890' }}
+                >
+                  {copiedKind === 'image' ? <Check size={11} strokeWidth={2.5} /> : <FileImage size={11} strokeWidth={1.8} />}
+                </button>
+              </Tooltip>
+              <Tooltip label="画像+テキストをコピー">
+                <button
+                  aria-label="画像+テキストをコピー"
+                  onClick={() => { void handleCopyAll() }}
+                  disabled={!imageSrc}
+                  style={{
+                    width: 24,
+                    height: 24,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'transparent',
+                    border: '1px solid #38383e',
+                    borderRadius: 4,
+                    color: imageSrc ? (copiedKind === 'all' ? '#60c060' : '#888890') : '#44444a',
+                    cursor: imageSrc ? 'pointer' : 'default',
+                    padding: 0
+                  }}
+                  onMouseEnter={e => { if (imageSrc && copiedKind !== 'all') e.currentTarget.style.color = '#c8c8d0' }}
+                  onMouseLeave={e => { if (imageSrc && copiedKind !== 'all') e.currentTarget.style.color = '#888890' }}
+                >
+                  {copiedKind === 'all' ? <Check size={11} strokeWidth={2.5} /> : <Layers size={11} strokeWidth={1.8} />}
+                </button>
+              </Tooltip>
+            </div>
           </div>
 
           {/* Annotation rows */}
@@ -1737,6 +1995,7 @@ export default function App() {
                     ann={ann}
                     textareaRef={el => { textareaRefs.current[idx] = el }}
                     onChange={handleAnnotationTextChange}
+                    onDelete={handleDeleteAnnotation}
                   />
                 ))}
 

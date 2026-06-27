@@ -1,4 +1,4 @@
-import { contextBridge, clipboard, nativeImage } from 'electron'
+import { contextBridge, clipboard, nativeImage, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('maruAPI', {
   /** Read clipboard image as data URL (PNG). Returns null if no image. */
@@ -28,5 +28,15 @@ contextBridge.exposeInMainWorld('maruAPI', {
     const buf = Buffer.from(base64, 'base64')
     const img = nativeImage.createFromBuffer(buf)
     clipboard.write({ image: img, text })
+  },
+
+  /** 新規ウィンドウを開く (#10) */
+  createNewWindow(): Promise<void> {
+    return ipcRenderer.invoke('new-window')
+  },
+
+  /** インタラクティブスクリーンキャプチャ → クリップボードに書き込み (#9) */
+  captureScreen(): Promise<void> {
+    return ipcRenderer.invoke('capture-screen')
   }
 })
