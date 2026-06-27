@@ -73,7 +73,7 @@ function extractPaletteFromCanvas(canvas: HTMLCanvasElement): string[] {
     pixels.push([data[i], data[i + 1], data[i + 2]])
   }
   if (pixels.length === 0) return []
-  const raw = medianCut(pixels, 4)  // 2^4 = 16 candidate colors
+  const raw = medianCut(pixels, 5)  // 2^5 = 32 candidate colors → ensures ≥10 after dedup
   // De-duplicate: drop colors within Euclidean distance 25 of an already-kept color
   const unique: RGB[] = []
   for (const c of raw) {
@@ -151,6 +151,8 @@ function Tooltip({ label, children }: TooltipProps) {
       onMouseLeave={() => setVisible(false)}
       onFocus={() => setVisible(true)}
       onBlur={() => setVisible(false)}
+      // SC 1.4.13: ESC dismisses tooltip without moving pointer/focus
+      onKeyDown={e => { if (e.key === 'Escape') setVisible(false) }}
     >
       {childWithAria}
       {visible && (
@@ -169,7 +171,7 @@ function Tooltip({ label, children }: TooltipProps) {
             padding: '3px 8px',
             borderRadius: 4,
             whiteSpace: 'nowrap',
-            pointerEvents: 'none',
+            // SC 1.4.13: tooltip must be hoverable (pointerEvents not none)
             zIndex: 200,
             boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
             border: '1px solid #4a4a50'
@@ -1194,11 +1196,17 @@ interface ColorsPanelProps {
 
 function ColorsPanel({ paletteColors, pickedColor }: ColorsPanelProps) {
   const [copiedHex, setCopiedHex] = useState<string | null>(null)
+  // SC 4.1.3: live region announces copy completion to screen readers
+  const [announcement, setAnnouncement] = useState('')
 
   function copyHex(hex: string): void {
     window.maruAPI?.writeClipboardText(hex)
     setCopiedHex(hex)
-    setTimeout(() => setCopiedHex(v => v === hex ? null : v), 1500)
+    setAnnouncement(`${hex.toUpperCase()} をコピーしました`)
+    setTimeout(() => {
+      setCopiedHex(v => v === hex ? null : v)
+      setAnnouncement('')
+    }, 1500)
   }
 
   if (paletteColors.length === 0 && !pickedColor) return null
@@ -1209,9 +1217,27 @@ function ColorsPanel({ paletteColors, pickedColor }: ColorsPanelProps) {
         borderTop: '1px solid #2e2e32',
         padding: '10px 14px 12px',
         flexShrink: 0,
-        background: '#1e1e22'
+        background: '#1e1e22',
+        position: 'relative'
       }}
     >
+      {/* SC 4.1.3: live region announces copy completion to screen readers */}
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        style={{
+          position: 'absolute',
+          width: 1,
+          height: 1,
+          overflow: 'hidden',
+          clip: 'rect(0,0,0,0)',
+          whiteSpace: 'nowrap'
+        }}
+      >
+        {announcement}
+      </div>
+
       {/* Section header */}
       <div
         style={{
@@ -1274,6 +1300,8 @@ function ColorsPanel({ paletteColors, pickedColor }: ColorsPanelProps) {
               }}
               onMouseEnter={e => { e.currentTarget.style.color = '#c8c8d0' }}
               onMouseLeave={e => { e.currentTarget.style.color = '#888890' }}
+              onFocus={e => { e.currentTarget.style.outline = '2px solid #7070cc'; e.currentTarget.style.outlineOffset = '1px' }}  // WCAG 2.4.7
+              onBlur={e => { e.currentTarget.style.outline = 'none' }}
             >
               {copiedHex === pickedColor
                 ? <Check size={11} strokeWidth={2.5} />
@@ -1291,6 +1319,8 @@ function ColorsPanel({ paletteColors, pickedColor }: ColorsPanelProps) {
               <button
                 aria-label={`${hex.toUpperCase()} をコピー`}
                 onClick={() => copyHex(hex)}
+                onFocus={e => { e.currentTarget.style.outline = '2px solid #7070cc'; e.currentTarget.style.outlineOffset = '1px' }}  // WCAG 2.4.7
+                onBlur={e => { e.currentTarget.style.outline = 'none' }}
                 style={{
                   width: 22,
                   height: 22,
@@ -1500,10 +1530,10 @@ export default function App() {
     setAnnotations(prev => prev.map(a => a.id === id ? { ...a, text } : a))
   }
 
-  function handleOffscreenReady(canvas: HTMLCanvasElement): void {
+  const handleOffscreenReady = useCallback((canvas: HTMLCanvasElement): void => {
     setPaletteColors(extractPaletteFromCanvas(canvas))
     setPickedColor(null)
-  }
+  }, [])
 
   function toggleAnnotationTool(): void {
     if (!imageSrc) return
