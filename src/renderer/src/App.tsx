@@ -11,9 +11,11 @@ import {
   ZoomIn,
   ZoomOut,
   Crosshair,
-  Copy,
   Minus,
-  X
+  X,
+  Type,
+  FileImage,
+  Layers
 } from 'lucide-react'
 
 // Electron drag region needs a vendor-prefixed CSS property not in React's CSSProperties
@@ -573,6 +575,7 @@ const ZOOM_MAX = 20
 interface CanvasPaneHandle {
   zoomIn(): void
   zoomOut(): void
+  getOffscreen(): HTMLCanvasElement | null
 }
 
 interface DrawState {
@@ -693,6 +696,9 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
       const cy = pane.clientHeight / 2
       const off = offsetRef.current
       applyTransform(ns, cx - (cx - off.x) * (ns / prev), cy - (cy - off.y) * (ns / prev))
+    },
+    getOffscreen() {
+      return offscreenRef.current
     }
   }))
 
@@ -1032,18 +1038,145 @@ function AnnRow({ ann, textareaRef, onChange }: AnnRowProps) {
   )
 }
 
+// ─── Export helpers ───────────────────────────────────────────────────────────
+
+/** Unicode circled numbers ①…⑳ (U+2460…U+2473) */
+function circledNumber(n: number): string {
+  if (n >= 1 && n <= 20) return String.fromCharCode(0x245f + n)
+  return `(${n})`
+}
+
+/** Build the text output: numbered lines + optional global text */
+function buildTextOutput(annotations: Annotation[], globalText: string): string {
+  const lines = annotations.map(a => `${circledNumber(a.n)} ${a.text}`)
+  if (globalText.trim()) lines.push(`全体: ${globalText}`)
+  return lines.join('\n')
+}
+
+/** Draw a rounded-rect path on a 2D canvas context (no fill/stroke call — caller does that) */
+function roundRectPath(
+  ctx: CanvasRenderingContext2D,
+  x: number, y: number, w: number, h: number, r: number
+): void {
+  ctx.moveTo(x + r, y)
+  ctx.lineTo(x + w - r, y)
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r)
+  ctx.lineTo(x + w, y + h - r)
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
+  ctx.lineTo(x + r, y + h)
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r)
+  ctx.lineTo(x, y + r)
+  ctx.quadraticCurveTo(x, y, x + r, y)
+  ctx.closePath()
+}
+
+/** Draw a number badge circle on a 2D canvas context */
+function drawBadgeCtx(
+  ctx: CanvasRenderingContext2D,
+  bx: number, by: number, r: number, n: number, fill: string
+): void {
+  ctx.beginPath()
+  ctx.arc(bx, by, r, 0, Math.PI * 2)
+  ctx.fillStyle = fill
+  ctx.fill()
+  ctx.font = `700 ${BADGE_FONT_VR}px -apple-system, BlinkMacSystemFont, sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillStyle = badgeTextFill(fill)
+  ctx.fillText(String(n), bx, by)
+}
+
+/**
+ * Render the base image + all annotation markers + adjacent badges onto a new canvas
+ * at native image resolution. Returns a PNG data URL.
+ */
+function buildAnnotatedCanvas(
+  imageSrc: string,
+  annotations: Annotation[],
+  offscreen: HTMLCanvasElement | null
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new globalThis.Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0)
+
+      for (const ann of annotations) {
+        const { stroke, halo } = getAdaptiveColors(offscreen, ann)
+
+        ctx.save()
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+
+        if (ann.kind === 'circle') {
+          const r = CIRCLE_VR
+          // halo ring
+          ctx.beginPath(); ctx.arc(ann.x, ann.y, r, 0, Math.PI * 2)
+          ctx.strokeStyle = halo; ctx.lineWidth = HALO_STROKE_W; ctx.stroke()
+          // marker ring
+          ctx.beginPath(); ctx.arc(ann.x, ann.y, r, 0, Math.PI * 2)
+          ctx.strokeStyle = stroke; ctx.lineWidth = MARKER_STROKE_W; ctx.stroke()
+          // badge (adjacent: top-right of circle)
+          drawBadgeCtx(ctx, ann.x + r + BADGE_VR * 0.6, ann.y - r - BADGE_VR * 0.6, BADGE_VR, ann.n, stroke)
+        } else {
+          // halo rect
+          ctx.beginPath(); roundRectPath(ctx, ann.x, ann.y, ann.w, ann.h, RECT_RX)
+          ctx.strokeStyle = halo; ctx.lineWidth = HALO_STROKE_W; ctx.stroke()
+          // marker rect
+          ctx.beginPath(); roundRectPath(ctx, ann.x, ann.y, ann.w, ann.h, RECT_RX)
+          ctx.strokeStyle = stroke; ctx.lineWidth = MARKER_STROKE_W; ctx.stroke()
+          // badge (adjacent: top-right of rect)
+          drawBadgeCtx(ctx, ann.x + ann.w + BADGE_VR * 0.6, ann.y - BADGE_VR * 0.6, BADGE_VR, ann.n, stroke)
+        }
+
+        ctx.restore()
+      }
+
+      resolve(canvas.toDataURL('image/png'))
+    }
+    img.onerror = () => reject(new Error('image load failed'))
+    img.src = imageSrc
+  })
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [annotationTool, setAnnotationTool] = useState(false)
+  const [globalText, setGlobalText] = useState('')
   const canvasPaneRef = useRef<CanvasPaneHandle>(null)
 
   // Refs for inspector text inputs (for auto-focus)
   const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([])
   const [pendingFocusN, setPendingFocusN] = useState<number | null>(null)
   const inspectorScrollRef = useRef<HTMLDivElement>(null)
+
+  // ─── Copy handlers ──────────────────────────────────────────────────────────
+
+  function handleCopyText(): void {
+    const text = buildTextOutput(annotations, globalText)
+    window.maruAPI?.writeClipboardText(text)
+  }
+
+  async function handleCopyImage(): Promise<void> {
+    if (!imageSrc) return
+    const offscreen = canvasPaneRef.current?.getOffscreen() ?? null
+    const dataUrl = await buildAnnotatedCanvas(imageSrc, annotations, offscreen)
+    window.maruAPI?.writeClipboardImage(dataUrl)
+  }
+
+  async function handleCopyAll(): Promise<void> {
+    if (!imageSrc) return
+    const offscreen = canvasPaneRef.current?.getOffscreen() ?? null
+    const dataUrl = await buildAnnotatedCanvas(imageSrc, annotations, offscreen)
+    const text = buildTextOutput(annotations, globalText)
+    window.maruAPI?.writeClipboardBoth(dataUrl, text)
+  }
 
   function handlePaste(): void {
     const src = window.maruAPI?.readClipboardImage?.()
@@ -1148,9 +1281,22 @@ export default function App() {
           <ToolbarDivider />
 
           <IconButton
-            icon={<Copy size={15} strokeWidth={1.8} />}
-            label="コピー (Phase 5)"
-            disabled
+            icon={<Type size={15} strokeWidth={1.8} />}
+            label="テキストのみコピー"
+            onClick={handleCopyText}
+            disabled={!imageSrc}
+          />
+          <IconButton
+            icon={<FileImage size={15} strokeWidth={1.8} />}
+            label="注釈付き画像をコピー"
+            onClick={() => { void handleCopyImage() }}
+            disabled={!imageSrc}
+          />
+          <IconButton
+            icon={<Layers size={15} strokeWidth={1.8} />}
+            label="画像+テキストをコピー"
+            onClick={() => { void handleCopyAll() }}
+            disabled={!imageSrc}
           />
         </div>
 
@@ -1298,6 +1444,62 @@ export default function App() {
                 </div>
               </>
             )}
+          </div>
+
+          {/* Global text section — always visible at inspector bottom */}
+          <div
+            style={{
+              borderTop: '1px solid #2e2e32',
+              padding: '10px 14px 12px',
+              flexShrink: 0,
+              background: '#1e1e22'
+            }}
+          >
+            <label
+              htmlFor="global-text"
+              style={{
+                display: 'block',
+                fontSize: 10,
+                fontWeight: 600,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                color: '#606068',
+                marginBottom: 6
+              }}
+            >
+              全体コメント
+            </label>
+            <textarea
+              id="global-text"
+              value={globalText}
+              onChange={e => setGlobalText(e.target.value)}
+              aria-label="全体コメント"
+              placeholder="画像全体への補足・コンテキスト"
+              rows={3}
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                background: '#1e1e20',
+                border: '1px solid #38383e',
+                borderRadius: 6,
+                color: '#d8d8e0',
+                fontSize: 12,
+                lineHeight: 1.5,
+                padding: '5px 8px',
+                resize: 'vertical',
+                fontFamily: 'inherit',
+                minHeight: 56
+              }}
+              onFocus={e => {
+                e.currentTarget.style.borderColor = '#5a5a66'
+                e.currentTarget.style.outline = '2px solid #7070cc'
+                e.currentTarget.style.outlineOffset = '1px'
+              }}
+              onBlur={e => {
+                e.currentTarget.style.borderColor = '#38383e'
+                e.currentTarget.style.outline = 'none'
+              }}
+            />
           </div>
         </div>
       </div>

@@ -20,5 +20,13 @@ contextBridge.exposeInMainWorld('maruAPI', {
   /** Write plain text to the clipboard */
   writeClipboardText(text: string): void {
     clipboard.writeText(text)
+  },
+
+  /** Write both a PNG image and plain text to the clipboard simultaneously */
+  writeClipboardBoth(dataUrl: string, text: string): void {
+    const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '')
+    const buf = Buffer.from(base64, 'base64')
+    const img = nativeImage.createFromBuffer(buf)
+    clipboard.write({ image: img, text })
   }
 })

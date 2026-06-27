@@ -4,6 +4,7 @@ interface MaruAPI {
   readClipboardImage(): string | null
   writeClipboardImage(dataUrl: string): void
   writeClipboardText(text: string): void
+  writeClipboardBoth(dataUrl: string, text: string): void
 }
 
 declare interface Window {
