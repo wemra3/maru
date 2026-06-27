@@ -73,7 +73,8 @@ function Tooltip({ label, children }: TooltipProps) {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const child = React.Children.only(children) as React.ReactElement<any>
-  const childWithAria = React.cloneElement(child, { 'aria-describedby': tipId })
+  // SC 1.3.1: only reference tipId when the tooltip element is actually in the DOM
+  const childWithAria = React.cloneElement(child, { 'aria-describedby': visible ? tipId : undefined })
 
   return (
     <div
@@ -373,7 +374,8 @@ function computeBadgePlacements(
     return { ann, adjBx: bx, adjBy: by, annCenterScrX, annCenterScrY, side }
   })
 
-  const leftGutterScrX = ox - GUTTER_GAP_SCR
+  // Clamp left gutter so badge stays inside the pane when ox is near 0 (fit-width)
+  const leftGutterScrX = Math.max(BADGE_VR, ox - GUTTER_GAP_SCR)
   const rightGutterScrX = ox + iw * scale + GUTTER_GAP_SCR
 
   /** 1D interval packing: push badges down if they'd overlap */
@@ -872,7 +874,7 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
   return (
     <div
       ref={paneRef}
-      role="application"
+      role="region"
       aria-label="画像キャンバス"
       style={{
         flex: '0 0 65%',
@@ -1068,7 +1070,7 @@ export default function App() {
       const el = textareaRefs.current[idx]
       if (el) {
         el.focus()
-        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+        el.scrollIntoView({ block: 'nearest', behavior: prefersReducedMotion ? 'instant' : 'smooth' })
       }
     }
     setPendingFocusN(null)
@@ -1274,19 +1276,19 @@ export default function App() {
                         background: 'transparent',
                         border: '1px solid #38383e',
                         borderRadius: 6,
-                        color: '#55555e',
+                        color: '#888890',  // SC 1.4.3: ≥4.5:1 on #232325 ✓
                         fontSize: 11,
                         padding: '4px 10px',
                         cursor: 'pointer',
                         fontFamily: 'inherit'
                       }}
                       onMouseEnter={e => {
-                        e.currentTarget.style.borderColor = '#5a2a2a'
-                        e.currentTarget.style.color = '#cc4444'
+                        e.currentTarget.style.borderColor = '#5a3e00'
+                        e.currentTarget.style.color = '#e07c00'  // amber: CVD-safe, not red/green
                       }}
                       onMouseLeave={e => {
                         e.currentTarget.style.borderColor = '#38383e'
-                        e.currentTarget.style.color = '#55555e'
+                        e.currentTarget.style.color = '#888890'
                       }}
                     >
                       <X size={11} strokeWidth={2} />

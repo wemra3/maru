@@ -22,6 +22,12 @@ button {
   font-family: inherit;
 }
 
+/* SC 2.4.7: explicit focus ring — resilient against future CSS resets */
+button:focus-visible {
+  outline: 2px solid #7070cc;
+  outline-offset: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
