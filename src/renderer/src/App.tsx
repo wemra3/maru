@@ -1,4 +1,10 @@
-import React, { useState, useRef } from 'react'
+import React, {
+  useState,
+  useRef,
+  useEffect,
+  forwardRef,
+  useImperativeHandle
+} from 'react'
 import {
   ClipboardPaste,
   ZoomIn,
@@ -149,53 +155,228 @@ function CanvasPlaceholder({ onPaste }: { onPaste: () => void }) {
           ツールバーのボタン または ⌘V
         </p>
       </div>
-      <button
-        onClick={onPaste}
-        aria-label="クリップボードから貼り付け"
-        style={{
-          marginTop: 4,
-          padding: '6px 16px',
-          background: '#2e2e34',
-          border: '1px solid #3e3e46',
-          borderRadius: 6,
-          color: '#9090a0',
-          fontSize: 12,
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6
-        }}
-        onMouseEnter={e => {
-          e.currentTarget.style.background = '#38383f'
-          e.currentTarget.style.color = '#c0c0cc'
-        }}
-        onMouseLeave={e => {
-          e.currentTarget.style.background = '#2e2e34'
-          e.currentTarget.style.color = '#9090a0'
-        }}
-      >
-        <ClipboardPaste size={13} strokeWidth={1.5} />
-        貼り付け
-      </button>
+      <Tooltip label="クリップボードから貼り付け (⌘V)">
+        <button
+          onClick={onPaste}
+          aria-label="クリップボードから貼り付け"
+          style={{
+            marginTop: 4,
+            width: 36,
+            height: 36,
+            background: '#2e2e34',
+            border: '1px solid #3e3e46',
+            borderRadius: 8,
+            color: '#9090a0',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.background = '#38383f'
+            e.currentTarget.style.color = '#c0c0cc'
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.background = '#2e2e34'
+            e.currentTarget.style.color = '#9090a0'
+          }}
+        >
+          <ClipboardPaste size={15} strokeWidth={1.5} />
+        </button>
+      </Tooltip>
     </div>
   )
 }
+
+// ─── CanvasPane ───────────────────────────────────────────────────────────────
+
+const ZOOM_STEP = 1.25
+const ZOOM_MIN = 0.05
+const ZOOM_MAX = 20
+
+interface CanvasPaneHandle {
+  zoomIn(): void
+  zoomOut(): void
+}
+
+interface CanvasPaneProps {
+  imageSrc: string | null
+  onPaste(): void
+}
+
+const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function CanvasPane(
+  { imageSrc, onPaste },
+  ref
+) {
+  const paneRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(1)
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const [isPanning, setIsPanning] = useState(false)
+
+  // Mutable refs to read current values inside addEventListener callbacks
+  // (avoids stale-closure issues with passive wheel handler)
+  const scaleRef = useRef(1)
+  const offsetRef = useRef({ x: 0, y: 0 })
+  const panAnchor = useRef({ mx: 0, my: 0, ox: 0, oy: 0 })
+
+  function applyTransform(ns: number, nox: number, noy: number): void {
+    scaleRef.current = ns
+    offsetRef.current = { x: nox, y: noy }
+    setScale(ns)
+    setOffset({ x: nox, y: noy })
+  }
+
+  // Fit image to pane when a new imageSrc arrives
+  useEffect(() => {
+    if (!imageSrc || !paneRef.current) return
+    const pane = paneRef.current
+    const img = new Image()
+    img.onload = () => {
+      const pw = pane.clientWidth
+      const ph = pane.clientHeight
+      const fitScale = Math.min(pw / img.naturalWidth, ph / img.naturalHeight, 1)
+      const ox = (pw - img.naturalWidth * fitScale) / 2
+      const oy = (ph - img.naturalHeight * fitScale) / 2
+      applyTransform(fitScale, ox, oy)
+    }
+    img.src = imageSrc
+  }, [imageSrc])
+
+  // Wheel zoom centred on cursor — must be non-passive to allow preventDefault
+  useEffect(() => {
+    const el = paneRef.current
+    if (!el) return
+    function onWheel(e: WheelEvent): void {
+      e.preventDefault()
+      const factor = e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP
+      const prev = scaleRef.current
+      const ns = Math.min(Math.max(prev * factor, ZOOM_MIN), ZOOM_MAX)
+      const rect = el!.getBoundingClientRect()
+      const cx = e.clientX - rect.left
+      const cy = e.clientY - rect.top
+      const off = offsetRef.current
+      applyTransform(
+        ns,
+        cx - (cx - off.x) * (ns / prev),
+        cy - (cy - off.y) * (ns / prev)
+      )
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+
+  // Expose zoomIn / zoomOut to toolbar buttons in parent
+  useImperativeHandle(ref, () => ({
+    zoomIn() {
+      const pane = paneRef.current
+      if (!pane) return
+      const prev = scaleRef.current
+      const ns = Math.min(prev * ZOOM_STEP, ZOOM_MAX)
+      const cx = pane.clientWidth / 2
+      const cy = pane.clientHeight / 2
+      const off = offsetRef.current
+      applyTransform(
+        ns,
+        cx - (cx - off.x) * (ns / prev),
+        cy - (cy - off.y) * (ns / prev)
+      )
+    },
+    zoomOut() {
+      const pane = paneRef.current
+      if (!pane) return
+      const prev = scaleRef.current
+      const ns = Math.max(prev / ZOOM_STEP, ZOOM_MIN)
+      const cx = pane.clientWidth / 2
+      const cy = pane.clientHeight / 2
+      const off = offsetRef.current
+      applyTransform(
+        ns,
+        cx - (cx - off.x) * (ns / prev),
+        cy - (cy - off.y) * (ns / prev)
+      )
+    }
+  }))
+
+  function onMouseDown(e: React.MouseEvent): void {
+    if (!imageSrc || e.button !== 0) return
+    e.preventDefault()
+    setIsPanning(true)
+    panAnchor.current = {
+      mx: e.clientX,
+      my: e.clientY,
+      ox: offsetRef.current.x,
+      oy: offsetRef.current.y
+    }
+  }
+
+  function onMouseMove(e: React.MouseEvent): void {
+    if (!isPanning) return
+    const { mx, my, ox, oy } = panAnchor.current
+    const nox = ox + (e.clientX - mx)
+    const noy = oy + (e.clientY - my)
+    offsetRef.current = { x: nox, y: noy }
+    setOffset({ x: nox, y: noy })
+  }
+
+  function stopPan(): void {
+    setIsPanning(false)
+  }
+
+  return (
+    <div
+      ref={paneRef}
+      style={{
+        flex: '0 0 65%',
+        background: '#2b2b2e',
+        position: 'relative',
+        overflow: 'hidden',
+        cursor: imageSrc ? (isPanning ? 'grabbing' : 'grab') : 'default'
+      }}
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseUp={stopPan}
+      onMouseLeave={stopPan}
+    >
+      {imageSrc ? (
+        <img
+          src={imageSrc}
+          alt="canvas"
+          draggable={false}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            transformOrigin: '0 0',
+            transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+            maxWidth: 'none',
+            maxHeight: 'none',
+            display: 'block',
+            userSelect: 'none',
+            // Prevent image from consuming pointer events so pan drag is captured by pane
+            pointerEvents: 'none'
+          }}
+        />
+      ) : (
+        <CanvasPlaceholder onPaste={onPaste} />
+      )}
+    </div>
+  )
+})
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [imageSrc, setImageSrc] = useState<string | null>(null)
-  const [activeToolRef] = [useRef<string>('select')]
-  void activeToolRef // scaffold – tools wired in Phase 3
+  const canvasPaneRef = useRef<CanvasPaneHandle>(null)
 
-  function handlePaste() {
+  function handlePaste(): void {
     const src = window.maruAPI?.readClipboardImage?.()
     if (src) setImageSrc(src)
   }
 
   // ⌘V global keyboard shortcut
-  React.useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent): void {
       if ((e.metaKey || e.ctrlKey) && e.key === 'v') {
         handlePaste()
       }
@@ -262,13 +443,15 @@ export default function App() {
 
           <IconButton
             icon={<ZoomIn size={15} strokeWidth={1.8} />}
-            label="ズームイン (Phase 2)"
-            disabled
+            label="ズームイン"
+            onClick={() => canvasPaneRef.current?.zoomIn()}
+            disabled={!imageSrc}
           />
           <IconButton
             icon={<ZoomOut size={15} strokeWidth={1.8} />}
-            label="ズームアウト (Phase 2)"
-            disabled
+            label="ズームアウト"
+            onClick={() => canvasPaneRef.current?.zoomOut()}
+            disabled={!imageSrc}
           />
 
           <ToolbarDivider />
@@ -302,39 +485,7 @@ export default function App() {
       {/* ── Main area ── */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Canvas pane */}
-        <div
-          style={{
-            flex: '0 0 65%',
-            background: '#2b2b2e',
-            position: 'relative',
-            overflow: 'hidden'
-          }}
-        >
-          {imageSrc ? (
-            <div
-              style={{
-                width: '100%',
-                height: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-            >
-              <img
-                src={imageSrc}
-                alt="canvas"
-                style={{
-                  maxWidth: '100%',
-                  maxHeight: '100%',
-                  display: 'block',
-                  objectFit: 'contain'
-                }}
-              />
-            </div>
-          ) : (
-            <CanvasPlaceholder onPaste={handlePaste} />
-          )}
-        </div>
+        <CanvasPane ref={canvasPaneRef} imageSrc={imageSrc} onPaste={handlePaste} />
 
         {/* Divider */}
         <div
