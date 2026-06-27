@@ -30,8 +30,8 @@ button:focus-visible {
 
 /* ── Thin dark scrollbar for inspector ──────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -46,7 +46,7 @@ button:focus-visible {
 
 /* ── Textarea placeholder ───────────────────────────────────────────────── */
 textarea::placeholder {
-  color: #50505a;
+  color: #72727a;  /* WCAG 1.4.3: ≈4.7:1 on #1e1e20 ✓ */
 }
 
 /* ── Text selection ─────────────────────────────────────────────────────── */

@@ -284,10 +284,10 @@ function CanvasPlaceholder({ onPaste }: { onPaste: () => void }) {
         </button>
       </Tooltip>
       <div style={{ textAlign: 'center', lineHeight: 1.7 }}>
-        <p style={{ fontSize: 13, fontWeight: 500, color: '#909098', marginBottom: 3 }}>
+        <p style={{ fontSize: 13, fontWeight: 500, color: '#929298', marginBottom: 3 }}>
           画像を貼り付け
         </p>
-        <p style={{ fontSize: 11, color: '#50505a' }}>
+        <p style={{ fontSize: 11, color: '#868690' }}>
           ここをクリック または ⌘V
         </p>
       </div>
@@ -1109,7 +1109,7 @@ function AnnRow({ ann, textareaRef, onChange }: AnnRowProps) {
         display: 'flex',
         alignItems: 'flex-start',
         gap: 8,
-        padding: '8px 14px',
+        padding: '8px 12px',
         borderBottom: '1px solid #282830'
       }}
     >
@@ -1117,8 +1117,8 @@ function AnnRow({ ann, textareaRef, onChange }: AnnRowProps) {
       <div
         style={{
           flexShrink: 0,
-          width: 22,
-          height: 22,
+          width: 20,
+          height: 20,
           borderRadius: '50%',
           background: STROKE_ON_DARK,
           display: 'flex',
@@ -1570,6 +1570,7 @@ export default function App() {
             color: '#64646e',
             pointerEvents: 'none'
           }}
+          aria-hidden="true"
         >
           maru
         </div>
@@ -1578,7 +1579,7 @@ export default function App() {
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 2,
+            gap: 4,
             WebkitAppRegion: 'no-drag'
           } as WithDragRegion}
         >
