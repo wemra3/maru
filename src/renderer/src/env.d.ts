@@ -5,8 +5,9 @@ interface MaruAPI {
   writeClipboardImage(dataUrl: string): void
   writeClipboardText(text: string): void
   writeClipboardBoth(dataUrl: string, text: string): void
-  createNewWindow(): Promise<void>   // #10
-  captureScreen(): Promise<void>     // #9
+  createNewWindow(autoLoad?: boolean): Promise<void>  // #10
+  captureScreen(): Promise<void>                      // #9
+  onAutoPaste(callback: () => void): () => void       // #9 新窓の自動ペースト受信
 }
 
 declare interface Window {

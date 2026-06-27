@@ -312,7 +312,7 @@ function CanvasPlaceholder({ onPaste }: { onPaste: () => void }) {
         <p style={{ fontSize: 13, fontWeight: 500, color: '#929298', marginBottom: 3 }}>
           画像を貼り付け
         </p>
-        <p style={{ fontSize: 11, color: '#868690' }}>
+        <p style={{ fontSize: 11, color: '#9a9aa6' }}>
           ここをクリック または ⌘V
         </p>
       </div>
@@ -321,6 +321,11 @@ function CanvasPlaceholder({ onPaste }: { onPaste: () => void }) {
 }
 
 // ─── Adaptive contrast helper ─────────────────────────────────────────────────
+
+/** sRGB → linear light (WCAG 2.x relative luminance formula) */
+function linearizeSRGB(v: number): number {
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)
+}
 
 /** Sample average luminance at 8 points around a circle in image coords */
 function sampleLuminanceCircle(
@@ -337,7 +342,10 @@ function sampleLuminanceCircle(
     const py = Math.round(cy + sampleR * Math.sin(rad))
     if (px < 0 || py < 0 || px >= cw || py >= ch) continue
     const d = ctx.getImageData(px, py, 1, 1).data
-    total += 0.2126 * (d[0] / 255) + 0.7152 * (d[1] / 255) + 0.0722 * (d[2] / 255)
+    const r = linearizeSRGB(d[0] / 255)
+    const g = linearizeSRGB(d[1] / 255)
+    const b = linearizeSRGB(d[2] / 255)
+    total += 0.2126 * r + 0.7152 * g + 0.0722 * b
     count++
   }
   return count > 0 ? total / count : 0.5
@@ -1634,17 +1642,18 @@ export default function App() {
     )
   }
 
-  // #9: スクショキャプチャ → クリップボード → 新窓に貼り付け
+  // #9: スクショキャプチャ → クリップボード → 新窓に自動貼り付け
   async function handleCapture(): Promise<void> {
     await window.maruAPI?.captureScreen()
-    // screencapture 完了後にクリップボードから読んで新窓を開く
-    await window.maruAPI?.createNewWindow()
-    // 新窓の CanvasPane が起動したら ⌘V で貼り付けてもらう（または起動後 autoload は未実装）
+    // autoLoad=true: 新窓のロード完了後に main が auto-paste IPC を送信し自動ペーストされる
+    await window.maruAPI?.createNewWindow(true)
   }
 
   // ⌘V / ⌘N global keyboard shortcuts
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {
+      // textarea / input へのテキスト貼付と競合しないようフォーカス先を確認
+      if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return
       if ((e.metaKey || e.ctrlKey) && e.key === 'v') handlePaste()
       // #10: ⌘N で新規ウィンドウ
       if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
@@ -1654,6 +1663,12 @@ export default function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  // #9: main プロセスからの auto-paste イベントを受けてクリップボード画像を自動ロード
+  useEffect(() => {
+    const unregister = window.maruAPI?.onAutoPaste(() => { handlePaste() })
+    return () => unregister?.()
   }, [])
 
   // Auto-focus the newly added annotation's text input

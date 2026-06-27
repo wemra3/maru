@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import { exec } from 'child_process'
 
-function createWindow(): void {
+function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -23,11 +23,19 @@ function createWindow(): void {
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
+
+  return mainWindow
 }
 
 // IPC: 新規ウィンドウ (#10)
-ipcMain.handle('new-window', () => {
-  createWindow()
+// autoLoad=true の場合は読み込み完了後に auto-paste を送信 (#9)
+ipcMain.handle('new-window', (_event, autoLoad: boolean = false) => {
+  const win = createWindow()
+  if (autoLoad) {
+    win.webContents.once('did-finish-load', () => {
+      win.webContents.send('auto-paste')
+    })
+  }
 })
 
 // IPC: インタラクティブスクリーンキャプチャ (#9)

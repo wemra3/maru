@@ -30,9 +30,16 @@ contextBridge.exposeInMainWorld('maruAPI', {
     clipboard.write({ image: img, text })
   },
 
-  /** 新規ウィンドウを開く (#10) */
-  createNewWindow(): Promise<void> {
-    return ipcRenderer.invoke('new-window')
+  /** 新規ウィンドウを開く (#10)。autoLoad=true で開いた窓に auto-paste を送信 (#9) */
+  createNewWindow(autoLoad: boolean = false): Promise<void> {
+    return ipcRenderer.invoke('new-window', autoLoad)
+  },
+
+  /** (#9) 新窓の auto-paste イベントを受信するリスナーを登録。戻り値でアンレジスタ可能 */
+  onAutoPaste(callback: () => void): () => void {
+    const listener = (): void => callback()
+    ipcRenderer.on('auto-paste', listener)
+    return () => ipcRenderer.removeListener('auto-paste', listener)
   },
 
   /** インタラクティブスクリーンキャプチャ → クリップボードに書き込み (#9) */
