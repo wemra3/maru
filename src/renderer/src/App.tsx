@@ -15,11 +15,77 @@ import {
   X,
   Type,
   FileImage,
-  Layers
+  Layers,
+  Pipette,
+  Copy,
+  Check
 } from 'lucide-react'
 
 // Electron drag region needs a vendor-prefixed CSS property not in React's CSSProperties
 type WithDragRegion = React.CSSProperties & { WebkitAppRegion?: 'drag' | 'no-drag' }
+
+// ─── Color utilities ──────────────────────────────────────────────────────────
+
+type RGB = [number, number, number]
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('')
+}
+
+/** Median-cut: recursively split into 2^depth buckets, return average of each */
+function medianCut(pixels: RGB[], depth: number): RGB[] {
+  if (pixels.length === 0) return []
+  if (depth === 0) {
+    let rs = 0, gs = 0, bs = 0
+    for (const [r, g, b] of pixels) { rs += r; gs += g; bs += b }
+    const n = pixels.length
+    return [[Math.round(rs / n), Math.round(gs / n), Math.round(bs / n)]]
+  }
+  let rMin = 255, rMax = 0, gMin = 255, gMax = 0, bMin = 255, bMax = 0
+  for (const [r, g, b] of pixels) {
+    if (r < rMin) rMin = r; if (r > rMax) rMax = r
+    if (g < gMin) gMin = g; if (g > gMax) gMax = g
+    if (b < bMin) bMin = b; if (b > bMax) bMax = b
+  }
+  const rR = rMax - rMin, gR = gMax - gMin, bR = bMax - bMin
+  let ch: 0 | 1 | 2 = 0
+  if (gR >= rR && gR >= bR) ch = 1
+  else if (bR >= rR) ch = 2
+  const sorted = [...pixels].sort((a, b_) => a[ch] - b_[ch])
+  const mid = Math.floor(sorted.length / 2)
+  return [
+    ...medianCut(sorted.slice(0, mid), depth - 1),
+    ...medianCut(sorted.slice(mid), depth - 1),
+  ]
+}
+
+/** Extract representative palette (up to 16 colors) from an offscreen canvas */
+function extractPaletteFromCanvas(canvas: HTMLCanvasElement): string[] {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return []
+  const { width, height } = canvas
+  const data = ctx.getImageData(0, 0, width, height).data
+  // Sample at most ~4096 pixels for performance
+  const step = Math.max(1, Math.floor((width * height) / 4096))
+  const pixels: RGB[] = []
+  for (let i = 0; i < data.length; i += 4 * step) {
+    if (data[i + 3] < 128) continue
+    pixels.push([data[i], data[i + 1], data[i + 2]])
+  }
+  if (pixels.length === 0) return []
+  const raw = medianCut(pixels, 4)  // 2^4 = 16 candidate colors
+  // De-duplicate: drop colors within Euclidean distance 25 of an already-kept color
+  const unique: RGB[] = []
+  for (const c of raw) {
+    let dup = false
+    for (const u of unique) {
+      const d = Math.sqrt((c[0] - u[0]) ** 2 + (c[1] - u[1]) ** 2 + (c[2] - u[2]) ** 2)
+      if (d < 25) { dup = true; break }
+    }
+    if (!dup) unique.push(c)
+  }
+  return unique.map(([r, g, b]) => rgbToHex(r, g, b))
+}
 
 // ─── Data model ───────────────────────────────────────────────────────────────
 
@@ -593,10 +659,16 @@ interface CanvasPaneProps {
   annotationTool: boolean
   onAnnotationsChange(anns: Annotation[]): void
   onAnnotationAdded(n: number): void
+  eyedropperTool: boolean
+  onPickColor(hex: string): void
+  onOffscreenReady(canvas: HTMLCanvasElement): void
 }
 
 const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function CanvasPane(
-  { imageSrc, onPaste, annotations, annotationTool, onAnnotationsChange, onAnnotationAdded },
+  {
+    imageSrc, onPaste, annotations, annotationTool, onAnnotationsChange, onAnnotationAdded,
+    eyedropperTool, onPickColor, onOffscreenReady
+  },
   ref
 ) {
   const paneRef = useRef<HTMLDivElement>(null)
@@ -620,6 +692,9 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
   // Preview rect state (for drag feedback)
   const [preview, setPreview] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
 
+  // Eyedropper hover state: hex + pane-relative position
+  const [eyeHover, setEyeHover] = useState<{ hex: string; px: number; py: number } | null>(null)
+
   function applyTransform(ns: number, nox: number, noy: number): void {
     scaleRef.current = ns
     offsetRef.current = { x: nox, y: noy }
@@ -642,6 +717,7 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
       const ctx = canvas.getContext('2d')
       if (ctx) ctx.drawImage(img, 0, 0)
       offscreenRef.current = canvas
+      onOffscreenReady(canvas)
 
       const pw = pane.clientWidth
       const ph = pane.clientHeight
@@ -651,7 +727,7 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
       applyTransform(fitScale, ox, oy)
     }
     img.src = imageSrc
-  }, [imageSrc])
+  }, [imageSrc]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wheel zoom — non-passive to allow preventDefault
   useEffect(() => {
@@ -711,6 +787,19 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
     []
   )
 
+  /** Sample pixel hex at pane-relative screen coords from offscreen canvas */
+  function sampleHexAt(sx: number, sy: number): string | null {
+    const canvas = offscreenRef.current
+    if (!canvas) return null
+    const imgX = Math.round((sx - offsetRef.current.x) / scaleRef.current)
+    const imgY = Math.round((sy - offsetRef.current.y) / scaleRef.current)
+    if (imgX < 0 || imgY < 0 || imgX >= canvas.width || imgY >= canvas.height) return null
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    const d = ctx.getImageData(imgX, imgY, 1, 1).data
+    return rgbToHex(d[0], d[1], d[2])
+  }
+
   /** Hit-test whether a screen-space click hits an existing annotation */
   function hitAnnotation(sx: number, sy: number): Annotation | null {
     const s = scaleRef.current
@@ -734,6 +823,16 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
   function onMouseDown(e: React.MouseEvent): void {
     if (!imageSrc || e.button !== 0) return
     e.preventDefault()
+
+    if (eyedropperTool) {
+      const pane = paneRef.current!
+      const rect = pane.getBoundingClientRect()
+      const sx = e.clientX - rect.left
+      const sy = e.clientY - rect.top
+      const hex = sampleHexAt(sx, sy)
+      if (hex) { onPickColor(hex); setEyeHover(null) }
+      return
+    }
 
     if (annotationTool) {
       const pane = paneRef.current!
@@ -771,11 +870,19 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
   }
 
   function onMouseMove(e: React.MouseEvent): void {
+    const pane = paneRef.current!
+    const rect = pane.getBoundingClientRect()
+    const sx = e.clientX - rect.left
+    const sy = e.clientY - rect.top
+
+    if (eyedropperTool) {
+      const hex = sampleHexAt(sx, sy)
+      if (hex) setEyeHover({ hex, px: sx, py: sy })
+      else setEyeHover(null)
+      return
+    }
+
     if (annotationTool && drawRef.current) {
-      const pane = paneRef.current!
-      const rect = pane.getBoundingClientRect()
-      const sx = e.clientX - rect.left
-      const sy = e.clientY - rect.top
       const img = screenToImg(sx, sy)
 
       // Check drag threshold in screen space
@@ -853,6 +960,7 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
 
   function stopPan(): void {
     setIsPanning(false)
+    setEyeHover(null)
     if (drawRef.current) {
       drawRef.current = null
       setPreview(null)
@@ -873,7 +981,8 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
   // Cursor style
   let cursor = 'default'
   if (imageSrc) {
-    if (annotationTool) cursor = 'crosshair'
+    if (eyedropperTool) cursor = 'crosshair'
+    else if (annotationTool) cursor = 'crosshair'
     else cursor = isPanning ? 'grabbing' : 'grab'
   }
 
@@ -956,6 +1065,44 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
               <GutterLayer annotations={annotations} placements={placements} />
             </svg>
           )}
+
+          {/* Eyedropper floating preview */}
+          {eyedropperTool && eyeHover && (
+            <div
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                left: eyeHover.px + 18,
+                top: Math.max(0, eyeHover.py - 36),
+                background: '#252527',
+                border: '1px solid #3a3a40',
+                borderRadius: 6,
+                padding: '3px 8px 3px 5px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                pointerEvents: 'none',
+                zIndex: 100,
+                fontSize: 11,
+                fontFamily: 'monospace',
+                color: '#d8d8e0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.6)',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <div
+                style={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: 3,
+                  background: eyeHover.hex,
+                  border: '1px solid rgba(255,255,255,0.2)',
+                  flexShrink: 0
+                }}
+              />
+              {eyeHover.hex.toUpperCase()}
+            </div>
+          )}
         </>
       ) : (
         <CanvasPlaceholder onPaste={onPaste} />
@@ -1034,6 +1181,134 @@ function AnnRow({ ann, textareaRef, onChange }: AnnRowProps) {
           e.currentTarget.style.outline = 'none'
         }}
       />
+    </div>
+  )
+}
+
+// ─── Colors panel ─────────────────────────────────────────────────────────────
+
+interface ColorsPanelProps {
+  paletteColors: string[]
+  pickedColor: string | null
+}
+
+function ColorsPanel({ paletteColors, pickedColor }: ColorsPanelProps) {
+  const [copiedHex, setCopiedHex] = useState<string | null>(null)
+
+  function copyHex(hex: string): void {
+    window.maruAPI?.writeClipboardText(hex)
+    setCopiedHex(hex)
+    setTimeout(() => setCopiedHex(v => v === hex ? null : v), 1500)
+  }
+
+  if (paletteColors.length === 0 && !pickedColor) return null
+
+  return (
+    <div
+      style={{
+        borderTop: '1px solid #2e2e32',
+        padding: '10px 14px 12px',
+        flexShrink: 0,
+        background: '#1e1e22'
+      }}
+    >
+      {/* Section header */}
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          color: '#909098',
+          marginBottom: 8,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6
+        }}
+      >
+        <Pipette size={10} strokeWidth={2} />
+        Colors
+      </div>
+
+      {/* Picked color */}
+      {pickedColor && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            marginBottom: paletteColors.length > 0 ? 10 : 0
+          }}
+        >
+          <div
+            style={{
+              width: 20,
+              height: 20,
+              borderRadius: 3,
+              background: pickedColor,
+              border: '1px solid rgba(255,255,255,0.15)',
+              flexShrink: 0
+            }}
+          />
+          <span
+            style={{ fontSize: 11, color: '#d8d8e0', fontFamily: 'monospace', flex: 1 }}
+          >
+            {pickedColor.toUpperCase()}
+          </span>
+          <Tooltip label={copiedHex === pickedColor ? 'コピー済み' : 'HEXをコピー'}>
+            <button
+              aria-label="スポイト色のHEXをコピー"
+              onClick={() => copyHex(pickedColor)}
+              style={{
+                width: 22,
+                height: 22,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'transparent',
+                border: '1px solid #38383e',
+                borderRadius: 4,
+                color: '#888890',
+                cursor: 'pointer',
+                padding: 0
+              }}
+              onMouseEnter={e => { e.currentTarget.style.color = '#c8c8d0' }}
+              onMouseLeave={e => { e.currentTarget.style.color = '#888890' }}
+            >
+              {copiedHex === pickedColor
+                ? <Check size={11} strokeWidth={2.5} />
+                : <Copy size={11} strokeWidth={1.8} />}
+            </button>
+          </Tooltip>
+        </div>
+      )}
+
+      {/* Palette swatches */}
+      {paletteColors.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {paletteColors.map(hex => (
+            <Tooltip key={hex} label={`${hex.toUpperCase()} — クリックでコピー`}>
+              <button
+                aria-label={`${hex.toUpperCase()} をコピー`}
+                onClick={() => copyHex(hex)}
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 4,
+                  background: hex,
+                  border: copiedHex === hex
+                    ? '2px solid #e8e8f0'
+                    : '1px solid rgba(255,255,255,0.15)',
+                  cursor: 'pointer',
+                  padding: 0,
+                  flexShrink: 0,
+                  boxSizing: 'border-box'
+                }}
+              />
+            </Tooltip>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -1155,6 +1430,9 @@ export default function App() {
   const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
   const [annotationTool, setAnnotationTool] = useState(false)
+  const [eyedropperTool, setEyedropperTool] = useState(false)
+  const [paletteColors, setPaletteColors] = useState<string[]>([])
+  const [pickedColor, setPickedColor] = useState<string | null>(null)
   const [globalText, setGlobalText] = useState('')
   const canvasPaneRef = useRef<CanvasPaneHandle>(null)
 
@@ -1190,6 +1468,8 @@ export default function App() {
     if (src) {
       setImageSrc(src)
       setAnnotations([])
+      setPaletteColors([])
+      setPickedColor(null)
     }
   }
 
@@ -1218,6 +1498,23 @@ export default function App() {
 
   function handleAnnotationTextChange(id: string, text: string): void {
     setAnnotations(prev => prev.map(a => a.id === id ? { ...a, text } : a))
+  }
+
+  function handleOffscreenReady(canvas: HTMLCanvasElement): void {
+    setPaletteColors(extractPaletteFromCanvas(canvas))
+    setPickedColor(null)
+  }
+
+  function toggleAnnotationTool(): void {
+    if (!imageSrc) return
+    setAnnotationTool(v => !v)
+    setEyedropperTool(false)
+  }
+
+  function toggleEyedropperTool(): void {
+    if (!imageSrc) return
+    setEyedropperTool(v => !v)
+    setAnnotationTool(false)
   }
 
   return (
@@ -1265,8 +1562,15 @@ export default function App() {
           <IconButton
             icon={<Crosshair size={15} strokeWidth={1.8} />}
             label={annotationTool ? '注釈ツール ON — クリック=円 / ドラッグ=矩形 / 再クリック=削除' : '注釈ツール'}
-            onClick={() => imageSrc && setAnnotationTool(v => !v)}
+            onClick={toggleAnnotationTool}
             active={annotationTool}
+            disabled={!imageSrc}
+          />
+          <IconButton
+            icon={<Pipette size={15} strokeWidth={1.8} />}
+            label={eyedropperTool ? 'スポイト ON — クリックで色取得' : 'スポイト'}
+            onClick={toggleEyedropperTool}
+            active={eyedropperTool}
             disabled={!imageSrc}
           />
 
@@ -1335,6 +1639,9 @@ export default function App() {
           annotationTool={annotationTool}
           onAnnotationsChange={setAnnotations}
           onAnnotationAdded={n => setPendingFocusN(n)}
+          eyedropperTool={eyedropperTool}
+          onPickColor={hex => { setPickedColor(hex); window.maruAPI?.writeClipboardText(hex) }}
+          onOffscreenReady={handleOffscreenReady}
         />
 
         {/* Divider */}
@@ -1452,6 +1759,9 @@ export default function App() {
               </>
             )}
           </div>
+
+          {/* Colors section */}
+          <ColorsPanel paletteColors={paletteColors} pickedColor={pickedColor} />
 
           {/* Global text section — always visible at inspector bottom */}
           <div
