@@ -103,8 +103,8 @@ export interface Annotation {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CIRCLE_VR = 20       // circle visual radius (screen px)
-const BADGE_VR = 8         // badge visual radius (screen px)
-const BADGE_FONT_VR = 9    // badge font size (screen px)
+const BADGE_VR = 9         // badge visual radius (screen px)
+const BADGE_FONT_VR = 10   // badge font size (screen px)
 const DRAG_MIN_PX = 8      // min screen-px drag to become rect
 const MAX_ANNOTATIONS = 20
 const RECT_RX = 3          // rounded rect corner radius (image px)
@@ -248,6 +248,7 @@ function ToolbarDivider() {
 // ─── CanvasPlaceholder ────────────────────────────────────────────────────────
 
 function CanvasPlaceholder({ onPaste }: { onPaste: () => void }) {
+  const [hovered, setHovered] = useState(false)
   return (
     <div
       style={{
@@ -255,62 +256,41 @@ function CanvasPlaceholder({ onPaste }: { onPaste: () => void }) {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 14,
-        height: '100%',
-        color: '#55555e'
+        gap: 16,
+        height: '100%'
       }}
     >
-      <div
-        style={{
-          width: 64,
-          height: 64,
-          borderRadius: 16,
-          border: '1.5px dashed #3a3a40',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#44444c'
-        }}
-      >
-        <ClipboardPaste size={28} strokeWidth={1.5} />
-      </div>
-      <div style={{ textAlign: 'center', lineHeight: 1.6 }}>
-        <p style={{ fontSize: 13, fontWeight: 500, color: '#a0a0a8', marginBottom: 4 }}>
-          画像を貼り付け
-        </p>
-        <p style={{ fontSize: 11, color: '#a0a0a8' }}>
-          ツールバーのボタン または ⌘V
-        </p>
-      </div>
       <Tooltip label="クリップボードから貼り付け (⌘V)">
         <button
           onClick={onPaste}
           aria-label="クリップボードから貼り付け"
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
           style={{
-            marginTop: 4,
-            width: 36,
-            height: 36,
-            background: '#2e2e34',
-            border: '1px solid #3e3e46',
-            borderRadius: 8,
-            color: '#9090a0',
-            cursor: 'pointer',
+            width: 72,
+            height: 72,
+            borderRadius: 18,
+            border: `1.5px dashed ${hovered ? '#5a5a66' : '#3c3c42'}`,
+            background: hovered ? 'rgba(255,255,255,0.03)' : 'transparent',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center'
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = '#38383f'
-            e.currentTarget.style.color = '#c0c0cc'
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = '#2e2e34'
-            e.currentTarget.style.color = '#9090a0'
+            justifyContent: 'center',
+            color: hovered ? '#9090a0' : '#48484e',
+            cursor: 'pointer',
+            transition: prefersReducedMotion ? undefined : 'border-color 0.15s, color 0.15s, background 0.15s'
           }}
         >
-          <ClipboardPaste size={15} strokeWidth={1.5} />
+          <ClipboardPaste size={30} strokeWidth={1.4} />
         </button>
       </Tooltip>
+      <div style={{ textAlign: 'center', lineHeight: 1.7 }}>
+        <p style={{ fontSize: 13, fontWeight: 500, color: '#909098', marginBottom: 3 }}>
+          画像を貼り付け
+        </p>
+        <p style={{ fontSize: 11, color: '#50505a' }}>
+          ここをクリック または ⌘V
+        </p>
+      </div>
     </div>
   )
 }
@@ -609,7 +589,7 @@ function GutterLayer({ annotations, placements }: GutterLayerProps) {
                 fill="none"
                 stroke={STROKE_ON_DARK}
                 strokeWidth={1.5}
-                strokeOpacity={0.5}
+                strokeOpacity={0.65}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
@@ -994,7 +974,8 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
       role="region"
       aria-label="画像キャンバス"
       style={{
-        flex: '0 0 65%',
+        flex: 1,
+        minWidth: 0,
         background: '#2b2b2e',
         position: 'relative',
         overflow: 'hidden',
@@ -1136,17 +1117,18 @@ function AnnRow({ ann, textareaRef, onChange }: AnnRowProps) {
       <div
         style={{
           flexShrink: 0,
-          width: 20,
-          height: 20,
+          width: 22,
+          height: 22,
           borderRadius: '50%',
           background: STROKE_ON_DARK,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontSize: 10,
+          fontSize: 11,
           fontWeight: 700,
           color: '#000000',  // WCAG 1.4.3: #000 on #ff40d0 = 6.9:1 ✓
-          marginTop: 6
+          marginTop: 5,
+          letterSpacing: '-0.01em'
         }}
       >
         {ann.n}
@@ -1568,10 +1550,29 @@ export default function App() {
           background: '#252527',
           borderBottom: '1px solid #2e2e32',
           flexShrink: 0,
+          position: 'relative',
           WebkitAppRegion: 'drag'
         } as WithDragRegion}
       >
+        {/* macOS traffic light spacer */}
         <div style={{ width: 72, flexShrink: 0 }} />
+
+        {/* App name — absolutely centered so it doesn't shift with button count */}
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            textAlign: 'center',
+            fontSize: 12,
+            fontWeight: 600,
+            letterSpacing: '0.08em',
+            color: '#64646e',
+            pointerEvents: 'none'
+          }}
+        >
+          maru
+        </div>
 
         <div
           style={{
@@ -1640,22 +1641,6 @@ export default function App() {
             disabled={!imageSrc}
           />
         </div>
-
-        <div
-          style={{
-            flex: 1,
-            textAlign: 'center',
-            fontSize: 12,
-            fontWeight: 600,
-            letterSpacing: '0.04em',
-            color: '#585860',
-            pointerEvents: 'none'
-          }}
-        >
-          maru
-        </div>
-
-        <div style={{ width: 72, flexShrink: 0 }} />
       </div>
 
       {/* ── Main area ── */}
@@ -1680,7 +1665,8 @@ export default function App() {
         {/* Inspector pane */}
         <div
           style={{
-            flex: 1,
+            width: 280,
+            flexShrink: 0,
             background: '#232325',
             display: 'flex',
             flexDirection: 'column',
@@ -1754,7 +1740,7 @@ export default function App() {
                 ))}
 
                 {/* Clear-all button when annotations present */}
-                <div style={{ padding: '10px 14px' }}>
+                <div style={{ padding: '8px 14px' }}>
                   <Tooltip label="全注釈を削除">
                     <button
                       aria-label="全注釈を削除"
@@ -1762,27 +1748,28 @@ export default function App() {
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 5,
+                        justifyContent: 'center',
+                        width: 28,
+                        height: 28,
                         background: 'transparent',
                         border: '1px solid #38383e',
                         borderRadius: 6,
                         color: '#909098',  // SC 1.4.3: ≥4.5:1 on #232325 (4.95:1) ✓
-                        fontSize: 11,
-                        padding: '4px 10px',
                         cursor: 'pointer',
-                        fontFamily: 'inherit'
+                        padding: 0
                       }}
                       onMouseEnter={e => {
                         e.currentTarget.style.borderColor = '#5a3e00'
                         e.currentTarget.style.color = '#e07c00'  // amber: CVD-safe, not red/green
+                        e.currentTarget.style.background = '#2a2000'
                       }}
                       onMouseLeave={e => {
                         e.currentTarget.style.borderColor = '#38383e'
                         e.currentTarget.style.color = '#909098'
+                        e.currentTarget.style.background = 'transparent'
                       }}
                     >
-                      <X size={11} strokeWidth={2} />
-                      全消去
+                      <X size={13} strokeWidth={2} />
                     </button>
                   </Tooltip>
                 </div>

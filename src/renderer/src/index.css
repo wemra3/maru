@@ -28,6 +28,33 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
+/* ── Thin dark scrollbar for inspector ──────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #3a3a40;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4a4a52;
+}
+
+/* ── Textarea placeholder ───────────────────────────────────────────────── */
+textarea::placeholder {
+  color: #50505a;
+}
+
+/* ── Text selection ─────────────────────────────────────────────────────── */
+::selection {
+  background: rgba(112, 112, 204, 0.35);
+  color: #e0e0e4;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
