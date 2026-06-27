@@ -42,6 +42,7 @@ const MAX_ANNOTATIONS = 20
 const RECT_RX = 3          // rounded rect corner radius (image px)
 const MARKER_STROKE_W = 2.5  // marker stroke width (screen px)
 const HALO_STROKE_W = 5    // halo stroke width (screen px)
+const GUTTER_GAP_SCR = 18  // screen px from image edge to gutter badge center
 
 // Adaptive contrast colours
 const STROKE_ON_DARK = '#ff40d0'  // hot magenta on dark bg
@@ -275,15 +276,166 @@ function getAdaptiveColors(
   if (ann.kind === 'circle') {
     lum = sampleLuminanceCircle(offscreen, ann.x, ann.y, 30)
   } else {
-    // sample perimeter midpoints
+    // sample perimeter midpoints using bounding box diagonal
     const cx = ann.x + ann.w / 2
     const cy = ann.y + ann.h / 2
     lum = sampleLuminanceCircle(offscreen, cx, cy, Math.max(ann.w, ann.h) / 2)
   }
+  // Threshold at 0.45 relative luminance for WCAG-based contrast split
   if (lum > 0.45) {
     return { stroke: STROKE_ON_LIGHT, halo: HALO_ON_LIGHT }
   }
   return { stroke: STROKE_ON_DARK, halo: HALO_ON_DARK }
+}
+
+// ─── Badge placement computation ──────────────────────────────────────────────
+
+/** Computed per-annotation badge placement result */
+interface AnnPlacement {
+  /** Adjacent badge position in image coords (always computed) */
+  adjBx: number
+  adjBy: number
+  /** Gutter badge position in screen/pane coords (only set when collisions detected) */
+  gutterScrBx?: number
+  gutterScrBy?: number
+  /** L-shaped leader polyline in screen coords [[x,y], ...] */
+  leader?: [number, number][]
+}
+
+/**
+ * Computes badge placements for all annotations.
+ * Default: adjacent to figure (image coords).
+ * Fallback when any pair of badges collide: gutter mode for all badges.
+ * Gutter mode: sort by annotation Y center, 1D interval pack, L-shape leader.
+ */
+function computeBadgePlacements(
+  annotations: Annotation[],
+  scale: number,
+  ox: number,
+  oy: number,
+  iw: number
+): Map<string, AnnPlacement> {
+  const result = new Map<string, AnnPlacement>()
+  if (annotations.length === 0) return result
+
+  const br = BADGE_VR / scale
+
+  // Step 1: default adjacent badge positions in image coords
+  const adj = annotations.map(ann => {
+    let bx: number, by: number
+    if (ann.kind === 'circle') {
+      const r = CIRCLE_VR / scale
+      bx = ann.x + r + br * 0.6
+      by = ann.y - r - br * 0.6
+    } else {
+      bx = ann.x + ann.w + br * 0.6
+      by = ann.y - br * 0.6
+    }
+    return { ann, bx, by }
+  })
+
+  // Step 2: collision detection — distance between badge centers in image coords
+  const minDistImg = (BADGE_VR * 2 + 4) / scale  // 4 screen-px gap
+  let hasCollision = false
+  outer: for (let i = 0; i < adj.length; i++) {
+    for (let j = i + 1; j < adj.length; j++) {
+      const dx = adj[i].bx - adj[j].bx
+      const dy = adj[i].by - adj[j].by
+      if (Math.sqrt(dx * dx + dy * dy) < minDistImg) {
+        hasCollision = true
+        break outer
+      }
+    }
+  }
+
+  // Step 3: no collision → adjacent mode for all
+  if (!hasCollision) {
+    for (const { ann, bx, by } of adj) {
+      result.set(ann.id, { adjBx: bx, adjBy: by })
+    }
+    return result
+  }
+
+  // Step 4: gutter mode — determine side and sort Y
+  const imgMidScrX = ox + (iw * scale) / 2
+  const BADGE_PITCH_SCR = BADGE_VR * 2 + 4  // min vertical pitch in screen px
+
+  const withMeta = adj.map(({ ann, bx, by }) => {
+    const annCenterScrX =
+      ann.kind === 'circle'
+        ? ann.x * scale + ox
+        : (ann.x + ann.w / 2) * scale + ox
+    const annCenterScrY =
+      ann.kind === 'circle'
+        ? ann.y * scale + oy
+        : (ann.y + ann.h / 2) * scale + oy
+    const side: 'left' | 'right' = annCenterScrX < imgMidScrX ? 'left' : 'right'
+    return { ann, adjBx: bx, adjBy: by, annCenterScrX, annCenterScrY, side }
+  })
+
+  const leftGutterScrX = ox - GUTTER_GAP_SCR
+  const rightGutterScrX = ox + iw * scale + GUTTER_GAP_SCR
+
+  /** 1D interval packing: push badges down if they'd overlap */
+  function packGroup(
+    group: typeof withMeta,
+    gutterScrX: number
+  ): Array<{ annId: string; scrBx: number; scrBy: number; leader: [number, number][] }> {
+    const sorted = [...group].sort((a, b) => a.annCenterScrY - b.annCenterScrY)
+    const isLeft = gutterScrX < imgMidScrX
+    let nextMinY = -Infinity
+
+    return sorted.map(p => {
+      const desiredY = p.annCenterScrY
+      const placedY = Math.max(desiredY, nextMinY)
+      nextMinY = placedY + BADGE_PITCH_SCR
+
+      // Figure anchor in screen coords (nearest perimeter point toward the gutter)
+      let figScrX: number, figScrY: number
+      if (p.ann.kind === 'circle') {
+        const r = CIRCLE_VR * scale
+        figScrX = isLeft ? p.ann.x * scale + ox - r : p.ann.x * scale + ox + r
+        figScrY = p.ann.y * scale + oy
+      } else {
+        figScrX = isLeft
+          ? p.ann.x * scale + ox                     // left edge
+          : (p.ann.x + p.ann.w) * scale + ox         // right edge
+        figScrY = (p.ann.y + p.ann.h / 2) * scale + oy
+      }
+
+      // L-shape: badge → (figScrX, placedY) → figure anchor
+      const leader: [number, number][] = [
+        [gutterScrX, placedY],
+        [figScrX, placedY],
+        [figScrX, figScrY]
+      ]
+
+      return { annId: p.ann.id, scrBx: gutterScrX, scrBy: placedY, leader }
+    })
+  }
+
+  const leftPacked = packGroup(withMeta.filter(p => p.side === 'left'), leftGutterScrX)
+  const rightPacked = packGroup(withMeta.filter(p => p.side === 'right'), rightGutterScrX)
+
+  const gutterMap = new Map<string, { scrBx: number; scrBy: number; leader: [number, number][] }>()
+  for (const r of [...leftPacked, ...rightPacked]) {
+    gutterMap.set(r.annId, r)
+  }
+
+  for (const { ann, bx, by } of adj) {
+    const g = gutterMap.get(ann.id)
+    if (g) {
+      result.set(ann.id, {
+        adjBx: bx, adjBy: by,
+        gutterScrBx: g.scrBx, gutterScrBy: g.scrBy,
+        leader: g.leader
+      })
+    } else {
+      result.set(ann.id, { adjBx: bx, adjBy: by })
+    }
+  }
+
+  return result
 }
 
 // ─── SVG Annotation shapes ────────────────────────────────────────────────────
@@ -292,25 +444,19 @@ interface AnnotationShapeProps {
   ann: Annotation
   scale: number
   offscreen: HTMLCanvasElement | null
+  placement: AnnPlacement
 }
 
-function AnnotationShape({ ann, scale, offscreen }: AnnotationShapeProps) {
+function AnnotationShape({ ann, scale, offscreen, placement }: AnnotationShapeProps) {
   const { stroke, halo } = getAdaptiveColors(offscreen, ann)
   const sw = MARKER_STROKE_W / scale
   const hw = HALO_STROKE_W / scale
   const br = BADGE_VR / scale
   const bf = BADGE_FONT_VR / scale
 
-  // Badge position: top-right corner of bounding box, slightly outside
-  let bx: number, by: number
-  if (ann.kind === 'circle') {
-    const r = CIRCLE_VR / scale
-    bx = ann.x + r + br * 0.6
-    by = ann.y - r - br * 0.6
-  } else {
-    bx = ann.x + ann.w + br * 0.6
-    by = ann.y - br * 0.6
-  }
+  // Badge is only drawn here in adjacent mode (not gutter mode)
+  const showBadge = placement.gutterScrBx === undefined
+  const { adjBx: bx, adjBy: by } = placement
 
   return (
     <g>
@@ -339,19 +485,79 @@ function AnnotationShape({ ann, scale, offscreen }: AnnotationShapeProps) {
         </>
       )}
 
-      {/* Number badge */}
-      <circle cx={bx} cy={by} r={br} fill={stroke} />
-      <text
-        x={bx} y={by}
-        textAnchor="middle"
-        dominantBaseline="central"
-        fontSize={bf}
-        fontFamily="-apple-system, BlinkMacSystemFont, sans-serif"
-        fontWeight="700"
-        fill={badgeTextFill(stroke)}
-      >
-        {ann.n}
-      </text>
+      {/* Adjacent number badge — skipped in gutter mode */}
+      {showBadge && (
+        <>
+          <circle cx={bx} cy={by} r={br} fill={stroke} />
+          <text
+            x={bx} y={by}
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize={bf}
+            fontFamily="-apple-system, BlinkMacSystemFont, sans-serif"
+            fontWeight="700"
+            fill={badgeTextFill(stroke)}
+          >
+            {ann.n}
+          </text>
+        </>
+      )}
+    </g>
+  )
+}
+
+// ─── Gutter layer (screen-space badges + L-shape leaders) ────────────────────
+
+interface GutterLayerProps {
+  annotations: Annotation[]
+  placements: Map<string, AnnPlacement>
+}
+
+/** Renders gutter badges and L-shaped leader lines in screen/pane coords.
+ * Drawn outside the image-space <g transform> so positions are stable. */
+function GutterLayer({ annotations, placements }: GutterLayerProps) {
+  const gutterAnns = annotations.filter(
+    ann => placements.get(ann.id)?.gutterScrBx !== undefined
+  )
+  if (gutterAnns.length === 0) return null
+
+  return (
+    <g aria-hidden="true">
+      {gutterAnns.map(ann => {
+        const p = placements.get(ann.id)!
+        const bx = p.gutterScrBx!
+        const by = p.gutterScrBy!
+
+        return (
+          <g key={ann.id}>
+            {/* L-shaped leader line */}
+            {p.leader && (
+              <polyline
+                points={p.leader.map(([x, y]) => `${x},${y}`).join(' ')}
+                fill="none"
+                stroke={STROKE_ON_DARK}
+                strokeWidth={1.5}
+                strokeOpacity={0.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            )}
+            {/* Gutter badge: always over dark canvas bg → STROKE_ON_DARK */}
+            <circle cx={bx} cy={by} r={BADGE_VR} fill={STROKE_ON_DARK} />
+            <text
+              x={bx} y={by}
+              textAnchor="middle"
+              dominantBaseline="central"
+              fontSize={BADGE_FONT_VR}
+              fontFamily="-apple-system, BlinkMacSystemFont, sans-serif"
+              fontWeight="700"
+              fill={badgeTextFill(STROKE_ON_DARK)}
+            >
+              {ann.n}
+            </text>
+          </g>
+        )
+      })}
     </g>
   )
 }
@@ -650,6 +856,12 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
   const { w: iw, h: ih } = imgSizeRef.current
   const svgTransform = `translate(${ox} ${oy}) scale(${s})`
 
+  // Compute badge placements (adjacent vs gutter) for this render
+  const placements =
+    imageSrc && iw > 0
+      ? computeBadgePlacements(annotations, s, ox, oy, iw)
+      : new Map<string, AnnPlacement>()
+
   // Cursor style
   let cursor = 'default'
   if (imageSrc) {
@@ -704,14 +916,17 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
               }}
               aria-hidden="true"
             >
+              {/* Image-space layer: markers + adjacent badges */}
               <g transform={svgTransform}>
-                {/* Completed annotations */}
                 {annotations.map(ann => (
                   <AnnotationShape
                     key={ann.id}
                     ann={ann}
                     scale={s}
                     offscreen={offscreenRef.current}
+                    placement={
+                      placements.get(ann.id) ?? { adjBx: 0, adjBy: 0 }
+                    }
                   />
                 ))}
 
@@ -728,6 +943,9 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
                   />
                 )}
               </g>
+
+              {/* Screen-space layer: gutter badges + L-shape leaders */}
+              <GutterLayer annotations={annotations} placements={placements} />
             </svg>
           )}
         </>
