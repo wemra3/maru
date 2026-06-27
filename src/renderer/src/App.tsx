@@ -49,6 +49,12 @@ const STROKE_ON_LIGHT = '#7000cc' // deep purple on light bg
 const HALO_ON_DARK = 'rgba(0,0,0,0.65)'
 const HALO_ON_LIGHT = 'rgba(255,255,255,0.65)'
 
+/** WCAG 1.4.3 – pick black or white text on badge fill for ≥4.5:1 contrast.
+ * #ff40d0 (L≈0.30) → black #000 (6.9:1); #7000cc (L≈0.08) → white #fff (8.2:1) */
+function badgeTextFill(fill: string): string {
+  return fill === STROKE_ON_DARK ? '#000000' : '#ffffff'
+}
+
 // ─── Tooltip ──────────────────────────────────────────────────────────────────
 
 interface TooltipProps {
@@ -342,7 +348,7 @@ function AnnotationShape({ ann, scale, offscreen }: AnnotationShapeProps) {
         fontSize={bf}
         fontFamily="-apple-system, BlinkMacSystemFont, sans-serif"
         fontWeight="700"
-        fill="#ffffff"
+        fill={badgeTextFill(stroke)}
       >
         {ann.n}
       </text>
@@ -764,7 +770,7 @@ function AnnRow({ ann, textareaRef, onChange }: AnnRowProps) {
           justifyContent: 'center',
           fontSize: 10,
           fontWeight: 700,
-          color: '#fff',
+          color: '#000000',  // WCAG 1.4.3: #000 on #ff40d0 = 6.9:1 ✓
           marginTop: 6
         }}
       >
@@ -776,6 +782,7 @@ function AnnRow({ ann, textareaRef, onChange }: AnnRowProps) {
         ref={textareaRef}
         value={ann.text}
         onChange={e => onChange(ann.id, e.target.value)}
+        aria-label={`注釈 ${ann.n} の修正内容`}
         placeholder={`#${ann.n} の修正内容`}
         rows={2}
         style={{
@@ -789,14 +796,16 @@ function AnnRow({ ann, textareaRef, onChange }: AnnRowProps) {
           padding: '5px 8px',
           resize: 'vertical',
           fontFamily: 'inherit',
-          outline: 'none',
           minHeight: 44
         }}
         onFocus={e => {
           e.currentTarget.style.borderColor = '#5a5a66'
+          e.currentTarget.style.outline = '2px solid #7070cc'  // WCAG 2.4.7 focus visible
+          e.currentTarget.style.outlineOffset = '1px'
         }}
         onBlur={e => {
           e.currentTarget.style.borderColor = '#38383e'
+          e.currentTarget.style.outline = 'none'
         }}
       />
     </div>
@@ -991,7 +1000,7 @@ export default function App() {
                 style={{
                   marginLeft: 'auto',
                   fontSize: 10,
-                  color: '#66666e',
+                  color: '#909098',  // WCAG 1.4.3: ≈5:1 on #232325 ✓
                   fontWeight: 400,
                   letterSpacing: 0,
                   textTransform: 'none'
@@ -1021,7 +1030,7 @@ export default function App() {
                 }}
               >
                 <Crosshair size={22} strokeWidth={1.2} color="#38383e" />
-                <span style={{ color: '#60606a' }}>注釈を追加すると入力欄が現れます</span>
+                <span style={{ color: '#909098' }}>注釈を追加すると入力欄が現れます</span>
               </div>
             ) : (
               <>
