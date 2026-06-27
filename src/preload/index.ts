@@ -5,7 +5,8 @@ contextBridge.exposeInMainWorld('maruAPI', {
   readClipboardImage(): string | null {
     const img = clipboard.readImage()
     if (img.isEmpty()) return null
-    return img.toPNG().length > 0 ? `data:image/png;base64,${img.toPNG().toString('base64')}` : null
+    const buf = img.toPNG()
+    return buf.length > 0 ? `data:image/png;base64,${buf.toString('base64')}` : null
   },
 
   /** Write a data URL as PNG to the clipboard */

@@ -7,5 +7,5 @@ interface MaruAPI {
 }
 
 declare interface Window {
-  maruAPI: MaruAPI
+  maruAPI: MaruAPI | undefined
 }
