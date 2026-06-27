@@ -1311,10 +1311,10 @@ function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
 
 interface ColorsPanelProps {
   paletteColors: string[]
-  pickedColor: string | null
+  pickedColors: string[]
 }
 
-function ColorsPanel({ paletteColors, pickedColor }: ColorsPanelProps) {
+function ColorsPanel({ paletteColors, pickedColors }: ColorsPanelProps) {
   const [copiedHex, setCopiedHex] = useState<string | null>(null)
   // SC 4.1.3: live region announces copy completion to screen readers
   const [announcement, setAnnouncement] = useState('')
@@ -1329,7 +1329,7 @@ function ColorsPanel({ paletteColors, pickedColor }: ColorsPanelProps) {
     }, 1500)
   }
 
-  if (paletteColors.length === 0 && !pickedColor) return null
+  if (paletteColors.length === 0 && pickedColors.length === 0) return null
 
   return (
     <div
@@ -1376,61 +1376,6 @@ function ColorsPanel({ paletteColors, pickedColor }: ColorsPanelProps) {
         <Pipette size={10} strokeWidth={2} />
       </div>
 
-      {/* Picked color */}
-      {pickedColor && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            marginBottom: paletteColors.length > 0 ? 10 : 0
-          }}
-        >
-          <div
-            style={{
-              width: 20,
-              height: 20,
-              borderRadius: 3,
-              background: pickedColor,
-              border: '1px solid rgba(255,255,255,0.15)',
-              flexShrink: 0
-            }}
-          />
-          <span
-            style={{ fontSize: 11, color: '#d8d8e0', fontFamily: 'monospace', flex: 1 }}
-          >
-            {pickedColor.toUpperCase()}
-          </span>
-          <Tooltip label={copiedHex === pickedColor ? 'コピー済み' : 'HEXをコピー'}>
-            <button
-              aria-label="スポイト色のHEXをコピー"
-              onClick={() => copyHex(pickedColor)}
-              style={{
-                width: 22,
-                height: 22,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'transparent',
-                border: '1px solid #38383e',
-                borderRadius: 4,
-                color: '#888890',
-                cursor: 'pointer',
-                padding: 0
-              }}
-              onMouseEnter={e => { e.currentTarget.style.color = '#c8c8d0' }}
-              onMouseLeave={e => { e.currentTarget.style.color = '#888890' }}
-              onFocus={e => { e.currentTarget.style.outline = '2px solid #7070cc'; e.currentTarget.style.outlineOffset = '1px' }}  // WCAG 2.4.7
-              onBlur={e => { e.currentTarget.style.outline = 'none' }}
-            >
-              {copiedHex === pickedColor
-                ? <Check size={11} strokeWidth={2.5} />
-                : <Copy size={11} strokeWidth={1.8} />}
-            </button>
-          </Tooltip>
-        </div>
-      )}
-
       {/* Palette swatches */}
       {paletteColors.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -1449,6 +1394,44 @@ function ColorsPanel({ paletteColors, pickedColor }: ColorsPanelProps) {
                   border: copiedHex === hex
                     ? '2px solid #e8e8f0'
                     : '1px solid rgba(255,255,255,0.15)',
+                  cursor: 'pointer',
+                  padding: 0,
+                  flexShrink: 0,
+                  boxSizing: 'border-box'
+                }}
+              />
+            </Tooltip>
+          ))}
+        </div>
+      )}
+
+      {/* Picked swatches — eyedropper colors accumulated after palette */}
+      {pickedColors.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 4,
+            marginTop: paletteColors.length > 0 ? 6 : 0,
+            paddingTop: paletteColors.length > 0 ? 6 : 0,
+            borderTop: paletteColors.length > 0 ? '1px solid #2e2e32' : 'none'
+          }}
+        >
+          {pickedColors.map(hex => (
+            <Tooltip key={hex} label={`${hex.toUpperCase()} (スポイト) — クリックでコピー`}>
+              <button
+                aria-label={`スポイト色 ${hex.toUpperCase()} をコピー`}
+                onClick={() => copyHex(hex)}
+                onFocus={e => { e.currentTarget.style.outline = '2px solid #7070cc'; e.currentTarget.style.outlineOffset = '1px' }}  // WCAG 2.4.7
+                onBlur={e => { e.currentTarget.style.outline = 'none' }}
+                style={{
+                  width: 22,
+                  height: 22,
+                  borderRadius: 4,
+                  background: hex,
+                  border: copiedHex === hex
+                    ? '2px solid #e8e8f0'
+                    : '2px dashed rgba(255,255,255,0.35)',
                   cursor: 'pointer',
                   padding: 0,
                   flexShrink: 0,
@@ -1582,7 +1565,7 @@ export default function App() {
   const [annotationTool, setAnnotationTool] = useState(false)
   const [eyedropperTool, setEyedropperTool] = useState(false)
   const [paletteColors, setPaletteColors] = useState<string[]>([])
-  const [pickedColor, setPickedColor] = useState<string | null>(null)
+  const [pickedColors, setPickedColors] = useState<string[]>([])
   const [globalText, setGlobalText] = useState('')
   const canvasPaneRef = useRef<CanvasPaneHandle>(null)
 
@@ -1640,7 +1623,7 @@ export default function App() {
       setImageSrc(src)
       setAnnotations([])
       setPaletteColors([])
-      setPickedColor(null)
+      setPickedColors([])
     }
   }
 
@@ -1693,7 +1676,7 @@ export default function App() {
 
   const handleOffscreenReady = useCallback((canvas: HTMLCanvasElement): void => {
     setPaletteColors(extractPaletteFromCanvas(canvas))
-    setPickedColor(null)
+    setPickedColors([])
   }, [])
 
   function toggleAnnotationTool(): void {
@@ -1845,7 +1828,13 @@ export default function App() {
           onAnnotationAdded={n => setPendingFocusN(n)}
           onMaxReached={showMaxReached}
           eyedropperTool={eyedropperTool}
-          onPickColor={hex => { setPickedColor(hex); window.maruAPI?.writeClipboardText(hex) }}
+          onPickColor={hex => {
+            const lower = hex.toLowerCase()
+            if (![...paletteColors, ...pickedColors].some(c => c.toLowerCase() === lower)) {
+              setPickedColors(prev => [...prev, hex])
+            }
+            window.maruAPI?.writeClipboardText(hex)
+          }}
           onOffscreenReady={handleOffscreenReady}
         />
 
@@ -2038,7 +2027,7 @@ export default function App() {
           </div>
 
           {/* Colors section */}
-          <ColorsPanel paletteColors={paletteColors} pickedColor={pickedColor} />
+          <ColorsPanel paletteColors={paletteColors} pickedColors={pickedColors} />
 
           {/* Global text section — always visible at inspector bottom */}
           <div
