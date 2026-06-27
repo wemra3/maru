@@ -25,17 +25,35 @@ interface TooltipProps {
   children: React.ReactNode
 }
 
+let _tipCounter = 0
+
 function Tooltip({ label, children }: TooltipProps) {
   const [visible, setVisible] = useState(false)
+  // Stable ID per instance for aria-describedby association (WCAG 4.1.2)
+  const tipIdRef = useRef<string>('')
+  if (!tipIdRef.current) {
+    tipIdRef.current = `tip-${++_tipCounter}`
+  }
+  const tipId = tipIdRef.current
+
+  // Inject aria-describedby into the single child trigger (WCAG 4.1.2)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const child = React.Children.only(children) as React.ReactElement<any>
+  const childWithAria = React.cloneElement(child, { 'aria-describedby': tipId })
+
   return (
     <div
       style={{ position: 'relative', display: 'inline-flex' }}
       onMouseEnter={() => setVisible(true)}
       onMouseLeave={() => setVisible(false)}
+      onFocus={() => setVisible(true)}
+      onBlur={() => setVisible(false)}
     >
-      {children}
+      {childWithAria}
       {visible && (
         <div
+          id={tipId}
+          role="tooltip"
           style={{
             position: 'absolute',
             bottom: 'calc(100% + 6px)',
@@ -71,6 +89,11 @@ interface IconButtonProps {
   disabled?: boolean
 }
 
+// Check once at module level; Electron doesn't switch accessibility settings mid-session
+const prefersReducedMotion =
+  typeof window !== 'undefined' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
 function IconButton({ icon, label, onClick, active = false, disabled = false }: IconButtonProps) {
   const [hovered, setHovered] = useState(false)
   return (
@@ -92,7 +115,8 @@ function IconButton({ icon, label, onClick, active = false, disabled = false }: 
           borderRadius: 6,
           cursor: disabled ? 'default' : 'pointer',
           color: disabled ? '#55555a' : active ? '#e8e8f0' : hovered ? '#c8c8d0' : '#888890',
-          transition: 'background 0.1s, color 0.1s',
+          // Respect prefers-reduced-motion (WCAG 2.3 / CSS + JS dual layer)
+          transition: prefersReducedMotion ? undefined : 'background 0.1s, color 0.1s',
           flexShrink: 0
         }}
       >
@@ -148,10 +172,10 @@ function CanvasPlaceholder({ onPaste }: { onPaste: () => void }) {
         <ClipboardPaste size={28} strokeWidth={1.5} />
       </div>
       <div style={{ textAlign: 'center', lineHeight: 1.6 }}>
-        <p style={{ fontSize: 13, fontWeight: 500, color: '#606068', marginBottom: 4 }}>
+        <p style={{ fontSize: 13, fontWeight: 500, color: '#a0a0a8', marginBottom: 4 }}>
           画像を貼り付け
         </p>
-        <p style={{ fontSize: 11, color: '#484850' }}>
+        <p style={{ fontSize: 11, color: '#a0a0a8' }}>
           ツールバーのボタン または ⌘V
         </p>
       </div>
@@ -325,6 +349,8 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
   return (
     <div
       ref={paneRef}
+      role="application"
+      aria-label="画像キャンバス"
       style={{
         flex: '0 0 65%',
         background: '#2b2b2e',
@@ -515,7 +541,7 @@ export default function App() {
               fontWeight: 600,
               letterSpacing: '0.06em',
               textTransform: 'uppercase',
-              color: '#505058',
+              color: '#a0a0a8',
               display: 'flex',
               alignItems: 'center',
               gap: 6
@@ -532,7 +558,7 @@ export default function App() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#404048',
+              color: '#a0a0a8',
               fontSize: 12
             }}
           >
