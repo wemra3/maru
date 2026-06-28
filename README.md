@@ -12,6 +12,8 @@ General-purpose image editors and annotation tools are great for marking up scre
 
 maru is purpose-built for that handoff. Paste a screenshot, stamp numbered markers, write per-marker instructions in the inspector, then copy a single composite image — photo, circles/rectangles, and legend burned in — and paste it directly into Claude, ChatGPT, or any other AI coding tool.
 
+![maru in action](docs/demo.png)
+
 ---
 
 ## Features
