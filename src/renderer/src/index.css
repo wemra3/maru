@@ -11,7 +11,7 @@ body,
 #root {
   height: 100%;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   background: #1e1e20;
   color: #e0e0e4;
@@ -76,14 +76,21 @@ textarea::-webkit-resizer {
 
 /* ── Annotation stamp animations ────────────────────────────────────────── */
 @keyframes ann-pop {
-  0%   { transform: scale(0.4); opacity: 0; }
-  55%  { transform: scale(1.18); opacity: 1; }
+  0%   { transform: scale(0.97); opacity: 0; }
   100% { transform: scale(1);    opacity: 1; }
 }
 
 @keyframes ann-ripple {
-  0%   { transform: scale(1);   opacity: 0.65; }
-  100% { transform: scale(2.4); opacity: 0;    }
+  0%   { transform: scale(1);    opacity: 0.18; }
+  100% { transform: scale(1.25); opacity: 0;    }
+}
+
+/* ── Copy toast ──────────────────────────────────────────────────────────── */
+@keyframes toast-fade {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(-4px); }
+  12%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+  75%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-4px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -269,19 +269,25 @@ function ToolbarDivider() {
   )
 }
 
-// ─── AnnotationToolIcon (custom SVG: ◯ + pointer) ───────────────────────────
+// ─── AnnotationToolIcon (custom SVG: ◯ with 1 inside) ───────────────────────
 
-/** Composite icon: open circle (stamp) in lower-left + pointer cursor in upper-right */
+/** Numbered circle icon: circle ring with "1" centred — recognisable stamp tool */
 function AnnotationToolIcon() {
   return (
-    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      {/* Open circle — the annotation ring */}
-      <circle cx="6" cy="11" r="4.5" stroke="currentColor" strokeWidth="1.8" />
-      {/* Mouse pointer arrow — conventional cursor shape, upper-right area */}
-      <path
-        d="M13 2L13 9.5L11.3 8L10.2 11.8L8.9 11.3L10 7.5L7.8 9Z"
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+      <text
+        x="12"
+        y="12"
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize="11"
+        fontWeight="600"
+        fontFamily="system-ui, -apple-system, sans-serif"
         fill="currentColor"
-      />
+      >
+        1
+      </text>
     </svg>
   )
 }
@@ -560,18 +566,18 @@ function AnnotationShape({ ann, scale, offscreen, placement, isNew = false }: An
   const showBadge = placement.gutterScrBx === undefined
   const { adjBx: bx, adjBy: by } = placement
 
-  // Pop animation: scale from small → overshoot → settle (spring-like)
+  // Pop animation: subtle scale-in, no overshoot
   const popStyle = isNew && !prefersReducedMotion ? ({
     transformBox: 'fill-box',
     transformOrigin: '50% 50%',
-    animation: 'ann-pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) forwards'
+    animation: 'ann-pop 0.14s ease-out forwards'
   } as React.CSSProperties) : undefined
 
-  // Ripple animation: ring expands outward and fades
+  // Ripple animation: minimal ring expansion
   const rippleStyle = {
     transformBox: 'fill-box',
     transformOrigin: '50% 50%',
-    animation: 'ann-ripple 0.5s ease-out forwards',
+    animation: 'ann-ripple 0.25s ease-out forwards',
     pointerEvents: 'none' as const
   } as React.CSSProperties
 
@@ -1059,7 +1065,7 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
       // Trigger pop + ripple animation for this annotation
       setNewlyAddedId(newAnn.id)
       if (newlyAddedTimerRef.current) clearTimeout(newlyAddedTimerRef.current)
-      newlyAddedTimerRef.current = setTimeout(() => setNewlyAddedId(null), 550)
+      newlyAddedTimerRef.current = setTimeout(() => setNewlyAddedId(null), 300)
       return
     }
 
@@ -1312,6 +1318,7 @@ function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
           justifyContent: 'center',
           fontSize: 11,
           fontWeight: 700,
+          lineHeight: '1',
           color: '#000000',  // WCAG 1.4.3: #000 on #ff40d0 = 6.9:1 ✓
           marginTop: 5,
           letterSpacing: '-0.01em'
