@@ -78,7 +78,7 @@ ipcMain.handle('clipboard:read', (): string | null => {
 /** Load an image from a filesystem path (drag & drop) as PNG data URL.
  *  Extension allowlist prevents the renderer from using this handler as a
  *  path→dataURL oracle for arbitrary files (e.g. non-image documents). */
-const ALLOWED_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.tiff', '.tif'])
+const ALLOWED_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.tiff', '.tif', '.heic', '.heif'])
 
 ipcMain.handle('clipboard:read-path', (_e, filePath: string): string | null => {
   const ext = (filePath.match(/\.[^./\\]+$/) ?? [''])[0].toLowerCase()
