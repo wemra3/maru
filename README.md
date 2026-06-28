@@ -2,7 +2,7 @@
 
 **Annotate screenshots, then hand them to your AI coding agent. One image, all context.**
 
-![maru screenshot](docs/screenshot.png)
+![maru](docs/banner.png)
 
 ---
 
