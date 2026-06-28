@@ -11,7 +11,7 @@ import {
   ClipboardPaste,
   ZoomIn,
   ZoomOut,
-  Crosshair,
+  Circle,
   MousePointer,
   X,
   Type,
@@ -266,6 +266,23 @@ function ToolbarDivider() {
         flexShrink: 0
       }}
     />
+  )
+}
+
+// ─── AnnotationToolIcon (custom SVG: ◯ + pointer) ───────────────────────────
+
+/** Composite icon: open circle (stamp) in lower-left + pointer cursor in upper-right */
+function AnnotationToolIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      {/* Open circle — the annotation ring */}
+      <circle cx="6" cy="11" r="4.5" stroke="currentColor" strokeWidth="1.8" />
+      {/* Mouse pointer arrow — conventional cursor shape, upper-right area */}
+      <path
+        d="M13 2L13 9.5L11.3 8L10.2 11.8L8.9 11.3L10 7.5L7.8 9Z"
+        fill="currentColor"
+      />
+    </svg>
   )
 }
 
@@ -529,9 +546,10 @@ interface AnnotationShapeProps {
   scale: number
   offscreen: HTMLCanvasElement | null
   placement: AnnPlacement
+  isNew?: boolean
 }
 
-function AnnotationShape({ ann, scale, offscreen, placement }: AnnotationShapeProps) {
+function AnnotationShape({ ann, scale, offscreen, placement, isNew = false }: AnnotationShapeProps) {
   const { stroke, halo } = getAdaptiveColors(offscreen, ann)
   const sw = MARKER_STROKE_W / scale
   const hw = HALO_STROKE_W / scale
@@ -542,31 +560,65 @@ function AnnotationShape({ ann, scale, offscreen, placement }: AnnotationShapePr
   const showBadge = placement.gutterScrBx === undefined
   const { adjBx: bx, adjBy: by } = placement
 
+  // Pop animation: scale from small → overshoot → settle (spring-like)
+  const popStyle = isNew ? ({
+    transformBox: 'fill-box',
+    transformOrigin: '50% 50%',
+    animation: 'ann-pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) forwards'
+  } as React.CSSProperties) : undefined
+
+  // Ripple animation: ring expands outward and fades
+  const rippleStyle = {
+    transformBox: 'fill-box',
+    transformOrigin: '50% 50%',
+    animation: 'ann-ripple 0.5s ease-out forwards',
+    pointerEvents: 'none' as const
+  } as React.CSSProperties
+
   return (
     <g>
-      {/* Halo + marker */}
-      {ann.kind === 'circle' ? (
-        <>
-          <circle
-            cx={ann.x} cy={ann.y} r={CIRCLE_VR / scale}
-            fill="none" stroke={halo} strokeWidth={hw}
-          />
+      {/* Pop animation wrapper around halo + marker */}
+      <g style={popStyle}>
+        {ann.kind === 'circle' ? (
+          <>
+            <circle
+              cx={ann.x} cy={ann.y} r={CIRCLE_VR / scale}
+              fill="none" stroke={halo} strokeWidth={hw}
+            />
+            <circle
+              cx={ann.x} cy={ann.y} r={CIRCLE_VR / scale}
+              fill="none" stroke={stroke} strokeWidth={sw}
+            />
+          </>
+        ) : (
+          <>
+            <rect
+              x={ann.x} y={ann.y} width={ann.w} height={ann.h} rx={RECT_RX}
+              fill="none" stroke={halo} strokeWidth={hw}
+            />
+            <rect
+              x={ann.x} y={ann.y} width={ann.w} height={ann.h} rx={RECT_RX}
+              fill="none" stroke={stroke} strokeWidth={sw}
+            />
+          </>
+        )}
+      </g>
+
+      {/* Ripple ring — expands and fades on stamp placement */}
+      {isNew && !prefersReducedMotion && (
+        ann.kind === 'circle' ? (
           <circle
             cx={ann.x} cy={ann.y} r={CIRCLE_VR / scale}
             fill="none" stroke={stroke} strokeWidth={sw}
+            style={rippleStyle}
           />
-        </>
-      ) : (
-        <>
-          <rect
-            x={ann.x} y={ann.y} width={ann.w} height={ann.h} rx={RECT_RX}
-            fill="none" stroke={halo} strokeWidth={hw}
-          />
+        ) : (
           <rect
             x={ann.x} y={ann.y} width={ann.w} height={ann.h} rx={RECT_RX}
             fill="none" stroke={stroke} strokeWidth={sw}
+            style={rippleStyle}
           />
-        </>
+        )
       )}
 
       {/* Adjacent number badge — skipped in gutter mode */}
@@ -709,6 +761,13 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
 
   // Eyedropper hover state: hex + pane-relative position
   const [eyeHover, setEyeHover] = useState<{ hex: string; px: number; py: number } | null>(null)
+
+  // Annotation tool cursor preview position (pane-relative screen coords)
+  const [annotCursorPos, setAnnotCursorPos] = useState<{ x: number; y: number } | null>(null)
+
+  // Newly placed annotation id — drives the pop/ripple CSS animation
+  const [newlyAddedId, setNewlyAddedId] = useState<string | null>(null)
+  const newlyAddedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function applyTransform(ns: number, nox: number, noy: number): void {
     scaleRef.current = ns
@@ -897,6 +956,9 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
     const sx = e.clientX - rect.left
     const sy = e.clientY - rect.top
 
+    // Track position for annotation tool circle preview cursor
+    if (annotationTool) setAnnotCursorPos({ x: sx, y: sy })
+
     if (eyedropperTool) {
       const hex = sampleHexAt(sx, sy)
       if (hex) setEyeHover({ hex, px: sx, py: sy })
@@ -987,6 +1049,10 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
 
       onAnnotationsChange([...annotations, newAnn])
       onAnnotationAdded(n)
+      // Trigger pop + ripple animation for this annotation
+      setNewlyAddedId(newAnn.id)
+      if (newlyAddedTimerRef.current) clearTimeout(newlyAddedTimerRef.current)
+      newlyAddedTimerRef.current = setTimeout(() => setNewlyAddedId(null), 550)
       return
     }
 
@@ -996,6 +1062,7 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
   function stopPan(): void {
     setIsPanning(false)
     setEyeHover(null)
+    setAnnotCursorPos(null)
     if (drawRef.current) {
       drawRef.current = null
       setPreview(null)
@@ -1017,7 +1084,7 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
   let cursor = 'default'
   if (imageSrc) {
     if (eyedropperTool) cursor = 'crosshair'
-    else if (annotationTool) cursor = 'crosshair'
+    else if (annotationTool) cursor = 'none'  // circle preview overlay replaces cursor
     else cursor = isPanning ? 'grabbing' : 'grab'
   }
 
@@ -1080,6 +1147,7 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
                     placement={
                       placements.get(ann.id) ?? { adjBx: 0, adjBy: 0 }
                     }
+                    isNew={ann.id === newlyAddedId}
                   />
                 ))}
 
@@ -1100,6 +1168,27 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
               {/* Screen-space layer: gutter badges + L-shape leaders */}
               <GutterLayer annotations={annotations} placements={placements} />
             </svg>
+          )}
+
+          {/* Annotation tool cursor — circle stamp preview following the mouse */}
+          {annotationTool && annotCursorPos && !preview && (
+            <div
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                left: annotCursorPos.x,
+                top: annotCursorPos.y,
+                width: CIRCLE_VR * 2,
+                height: CIRCLE_VR * 2,
+                borderRadius: '50%',
+                border: `2.5px solid ${STROKE_ON_DARK}`,
+                boxShadow: `0 0 0 1.5px rgba(0,0,0,0.45)`,
+                opacity: 0.72,
+                transform: 'translate(-50%, -50%)',
+                pointerEvents: 'none',
+                zIndex: 60
+              }}
+            />
           )}
 
           {/* Eyedropper floating preview */}
@@ -1886,7 +1975,7 @@ export default function App() {
               active={!annotationTool && !eyedropperTool}
             />
             <IconButton
-              icon={<Crosshair size={15} strokeWidth={1.8} />}
+              icon={<AnnotationToolIcon />}
               label={annotationTool ? '注釈ツール ON — クリック=円 / ドラッグ=矩形 / 再クリック=削除' : '注釈ツール (A)'}
               onClick={toggleAnnotationTool}
               active={annotationTool}
@@ -1976,7 +2065,7 @@ export default function App() {
                   gap: 8
                 }}
               >
-                <Crosshair size={22} strokeWidth={1.2} color="#38383e" />
+                <Circle size={22} strokeWidth={1.2} color="#38383e" />
                 <span style={{ color: '#909098' }}>注釈を追加すると入力欄が現れます</span>
               </div>
             ) : (
