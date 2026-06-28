@@ -1,62 +1,34 @@
-import { fileURLToPath } from 'url'
-import { contextBridge, clipboard, nativeImage, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('maruAPI', {
   /**
    * Read clipboard image as PNG data URL.
-   * Priority 1: file URL (Finder-copied PNG/JPEG/HEIC → actual pixels via nativeImage, not file icon).
+   * Delegates to main process (IPC) so sandbox:true can be set on the renderer.
+   * Priority 1: file URL (Finder-copied PNG/JPEG/HEIC → actual pixels via nativeImage).
    * Priority 2: raw bitmap (screenshots, screen captures).
    * Returns null if no usable image is found.
    */
-  readClipboardImage(): string | null {
-    // macOS Finder copy writes 'public.file-url' with a file:// URL
-    const fileUrl = clipboard.read('public.file-url')
-    if (fileUrl && fileUrl.startsWith('file://')) {
-      try {
-        const filePath = fileURLToPath(fileUrl)
-        const img = nativeImage.createFromPath(filePath)
-        if (!img.isEmpty()) {
-          const buf = img.toPNG()
-          if (buf.length > 0) return `data:image/png;base64,${buf.toString('base64')}`
-        }
-      } catch {
-        // fall through to readImage()
-      }
-    }
-    // Fallback: raw bitmap (screenshot / ⌘C on image in browser etc.)
-    const img = clipboard.readImage()
-    if (img.isEmpty()) return null
-    const buf = img.toPNG()
-    return buf.length > 0 ? `data:image/png;base64,${buf.toString('base64')}` : null
+  readClipboardImage(): Promise<string | null> {
+    return ipcRenderer.invoke('clipboard:read')
   },
 
   /**
    * Load an image from a filesystem path as PNG data URL (for drag & drop).
-   * Uses nativeImage so macOS system codecs handle HEIC, JPEG, PNG, etc.
+   * Uses nativeImage in main process so macOS system codecs handle HEIC, JPEG, PNG, etc.
    * Returns null if the path cannot be read or decoded.
    */
-  readImageFromPath(filePath: string): string | null {
-    try {
-      const img = nativeImage.createFromPath(filePath)
-      if (img.isEmpty()) return null
-      const buf = img.toPNG()
-      return buf.length > 0 ? `data:image/png;base64,${buf.toString('base64')}` : null
-    } catch {
-      return null
-    }
+  readImageFromPath(filePath: string): Promise<string | null> {
+    return ipcRenderer.invoke('clipboard:read-path', filePath)
   },
 
   /** Write a data URL as PNG to the clipboard */
-  writeClipboardImage(dataUrl: string): void {
-    const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '')
-    const buf = Buffer.from(base64, 'base64')
-    const img = nativeImage.createFromBuffer(buf)
-    clipboard.writeImage(img)
+  writeClipboardImage(dataUrl: string): Promise<void> {
+    return ipcRenderer.invoke('clipboard:write-image', dataUrl)
   },
 
   /** Write plain text to the clipboard */
-  writeClipboardText(text: string): void {
-    clipboard.writeText(text)
+  writeClipboardText(text: string): Promise<void> {
+    return ipcRenderer.invoke('clipboard:write-text', text)
   },
 
   /** 新規ウィンドウを開く (#10)。autoLoad=true で開いた窓に auto-paste を送信 (#9) */

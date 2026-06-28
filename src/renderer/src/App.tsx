@@ -1499,7 +1499,7 @@ function ColorsPanel({ paletteColors, pickedColors }: ColorsPanelProps) {
   const [announcement, setAnnouncement] = useState('')
 
   function copyHex(hex: string): void {
-    window.maruAPI?.writeClipboardText(hex)
+    void window.maruAPI?.writeClipboardText(hex)
     setCopiedHex(hex)
     setAnnouncement(`Copied ${hex.toUpperCase()}`)
     setTimeout(() => {
@@ -1916,7 +1916,7 @@ export default function App() {
 
   function handleCopyText(): void {
     const text = buildTextOutput(annotations, globalText)
-    window.maruAPI?.writeClipboardText(text)
+    void window.maruAPI?.writeClipboardText(text)
     triggerCopyFeedback('text')  // #3
   }
 
@@ -1925,7 +1925,7 @@ export default function App() {
     const offscreen = canvasPaneRef.current?.getOffscreen() ?? null
     const scale = canvasPaneRef.current?.getScale() ?? 1
     const dataUrl = await buildAnnotatedCanvas(imageSrc, annotations, offscreen, scale)
-    window.maruAPI?.writeClipboardImage(dataUrl)
+    await window.maruAPI?.writeClipboardImage(dataUrl)
     triggerCopyFeedback('image')  // #3
   }
 
@@ -1937,7 +1937,7 @@ export default function App() {
     const legendText = buildTextOutput(annotations, globalText)
     const legendLines = legendText ? legendText.split('\n') : []
     const dataUrl = await buildAnnotatedCanvas(imageSrc, annotations, offscreen, scale, legendLines)
-    window.maruAPI?.writeClipboardImage(dataUrl)  // 単一PNG (旧: writeClipboardBoth)
+    await window.maruAPI?.writeClipboardImage(dataUrl)  // 単一PNG (旧: writeClipboardBoth)
     triggerCopyFeedback('all')  // #3
   }
 
@@ -1957,17 +1957,19 @@ export default function App() {
     }
   }
 
-  function handlePaste(): void {
-    loadImage(window.maruAPI?.readClipboardImage?.() ?? null)
+  async function handlePaste(): Promise<void> {
+    const src = (await window.maruAPI?.readClipboardImage()) ?? null
+    loadImage(src)
   }
 
   /** Drag & drop: load first image file dropped onto the canvas area */
-  function handleFileDrop(e: React.DragEvent<HTMLDivElement>): void {
+  async function handleFileDrop(e: React.DragEvent<HTMLDivElement>): Promise<void> {
     e.preventDefault()
     const file = e.dataTransfer.files[0] as (File & { path?: string }) | undefined
     const filePath = file?.path
     if (filePath) {
-      loadImage(window.maruAPI?.readImageFromPath(filePath) ?? null)
+      const src = (await window.maruAPI?.readImageFromPath(filePath)) ?? null
+      loadImage(src)
     } else {
       showNoImageToast()
     }
@@ -1995,7 +1997,7 @@ export default function App() {
 
       const meta = e.metaKey || e.ctrlKey
 
-      if (meta && e.key === 'v') { handlePaste(); return }
+      if (meta && e.key === 'v') { void handlePaste(); return }
       // #10: ⌘N で新規ウィンドウ
       if (meta && e.key === 'n') {
         e.preventDefault()
@@ -2249,7 +2251,7 @@ export default function App() {
               if (![...paletteColors, ...pickedColors].some(c => c.toLowerCase() === lower)) {
                 setPickedColors(prev => [...prev, hex])
               }
-              window.maruAPI?.writeClipboardText(hex)
+              void window.maruAPI?.writeClipboardText(hex)
             }}
             onOffscreenReady={handleOffscreenReady}
           />

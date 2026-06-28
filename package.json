@@ -12,6 +12,7 @@
   "build": {
     "appId": "com.wemra.maru",
     "productName": "maru",
+    "afterPack": "./scripts/set-fuses.cjs",
     "directories": {
       "buildResources": "build",
       "output": "release"
@@ -34,6 +35,7 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@electron/fuses": "^2.1.2",
     "@types/node": "^20.14.8",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
