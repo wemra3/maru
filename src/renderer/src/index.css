@@ -62,10 +62,10 @@ textarea::-webkit-resizer {
     135deg,
     transparent 0px,
     transparent 2.5px,
-    #52525e 2.5px,
-    #52525e 3.5px
+    #6b6b80 2.5px,
+    #6b6b80 3.5px
   );
-  border-radius: 0 0 5px 0;
+  border-radius: 0 0 6px 0;
 }
 
 /* ── Text selection ─────────────────────────────────────────────────────── */
