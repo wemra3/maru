@@ -24,10 +24,20 @@ function createWindow(): BrowserWindow {
   // F-3: block all new-window opening attempts
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
 
-  // F-3: block navigating away from the loaded URL
+  // F-3: block navigating away from the loaded URL.
+  // Use origin+pathname comparison (not strict equality) so hash-only in-page
+  // navigation (e.g. file://...index.html#section) is not silently blocked.
   mainWindow.webContents.on('will-navigate', (e, url) => {
     const current = mainWindow.webContents.getURL()
-    if (url !== current) e.preventDefault()
+    try {
+      const newUrl = new URL(url)
+      const curUrl = new URL(current)
+      if (newUrl.origin !== curUrl.origin || newUrl.pathname !== curUrl.pathname) {
+        e.preventDefault()
+      }
+    } catch {
+      e.preventDefault()
+    }
   })
 
   // In dev, electron-vite sets ELECTRON_RENDERER_URL
@@ -65,8 +75,14 @@ ipcMain.handle('clipboard:read', (): string | null => {
   return buf.length > 0 ? `data:image/png;base64,${buf.toString('base64')}` : null
 })
 
-/** Load an image from a filesystem path (drag & drop) as PNG data URL. */
+/** Load an image from a filesystem path (drag & drop) as PNG data URL.
+ *  Extension allowlist prevents the renderer from using this handler as a
+ *  path→dataURL oracle for arbitrary files (e.g. non-image documents). */
+const ALLOWED_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico', '.tiff', '.tif'])
+
 ipcMain.handle('clipboard:read-path', (_e, filePath: string): string | null => {
+  const ext = (filePath.match(/\.[^./\\]+$/) ?? [''])[0].toLowerCase()
+  if (!ALLOWED_IMAGE_EXTS.has(ext)) return null
   try {
     const img = nativeImage.createFromPath(filePath)
     if (img.isEmpty()) return null
@@ -77,8 +93,12 @@ ipcMain.handle('clipboard:read-path', (_e, filePath: string): string | null => {
   }
 })
 
-/** Write a PNG data URL to the clipboard. */
+/** Write a PNG data URL to the clipboard.
+ *  Payloads over ~300 MB are rejected to prevent OOM in the main process. */
+const MAX_DATA_URL_BYTES = 300 * 1024 * 1024
+
 ipcMain.handle('clipboard:write-image', (_e, dataUrl: string): void => {
+  if (dataUrl.length > MAX_DATA_URL_BYTES) return
   const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '')
   const buf = Buffer.from(base64, 'base64')
   const img = nativeImage.createFromBuffer(buf)

@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- F-4: CSP hardening.
-         style-src 'unsafe-inline' is kept because Vite injects <style> tags in dev mode
-         and electron-vite's production bundle still relies on inline style injection for
-         CSS-in-JS chunks. Removing it breaks the renderer in both dev and production builds.
+         style-src 'unsafe-inline' is kept because React's inline style={{}} props emit
+         style attributes at runtime, which require 'unsafe-inline' in style-src.
+         (Not Vite <style> injection — Vite extracts CSS to files in production builds.)
          All other dangerous sources are blocked.
     -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; object-src 'none'; base-uri 'self'; frame-src 'none'" />
