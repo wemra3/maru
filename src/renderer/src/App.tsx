@@ -1606,7 +1606,7 @@ function drawBadgeCtx(
   ctx.arc(bx, by, r, 0, Math.PI * 2)
   ctx.fillStyle = fill
   ctx.fill()
-  ctx.font = `700 ${fontSz}px -apple-system, BlinkMacSystemFont, sans-serif`
+  ctx.font = `700 ${fontSz}px "Inter Variable", Inter, -apple-system, sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillStyle = badgeTextFill(fill)
@@ -1686,17 +1686,46 @@ function buildAnnotatedCanvas(
       if (hasLegend && legendLines) {
         ctx.fillStyle = '#1e1e20'
         ctx.fillRect(0, img.naturalHeight, canvas.width, legendH)
-        ctx.font = `500 ${legendFontSz}px -apple-system, BlinkMacSystemFont, sans-serif`
-        ctx.textAlign = 'left'
-        ctx.textBaseline = 'top'
-        ctx.fillStyle = '#d8d8e0'
+
+        // Badge geometry for legend
+        const legendBadgeR = Math.round(7 * dpr)
+        const legendBadgeFontSz = Math.round(8 * dpr)
+        const legendTextX = legendPadX + legendBadgeR * 2 + Math.round(8 * dpr)
+        const legendMaxW = canvas.width - legendTextX - legendPadX
+
         for (let i = 0; i < legendLines.length; i++) {
-          ctx.fillText(
-            legendLines[i],
-            legendPadX,
-            img.naturalHeight + legendPadTop + i * legendLineH,
-            canvas.width - legendPadX * 2
-          )
+          const line = legendLines[i]
+          const lineCenterY = img.naturalHeight + legendPadTop + i * legendLineH + legendLineH / 2
+
+          // Detect circled number prefix (①…⑳ = U+2460…U+2473)
+          const firstCp = line.codePointAt(0) ?? 0
+          if (firstCp >= 0x2460 && firstCp <= 0x2473) {
+            const n = firstCp - 0x245f  // 1-based badge number
+            const rest = line.slice(1).trimStart()
+            // Draw circle badge
+            drawBadgeCtx(
+              ctx,
+              legendPadX + legendBadgeR,
+              lineCenterY,
+              legendBadgeR,
+              n,
+              STROKE_ON_DARK,
+              legendBadgeFontSz
+            )
+            // Draw annotation text (Inter Light)
+            ctx.font = `300 ${legendFontSz}px "Inter Variable", Inter, -apple-system, sans-serif`
+            ctx.textAlign = 'left'
+            ctx.textBaseline = 'middle'
+            ctx.fillStyle = '#d8d8e0'
+            ctx.fillText(rest, legendTextX, lineCenterY, legendMaxW)
+          } else {
+            // Global comment line — indented to align with annotation text
+            ctx.font = `300 ${legendFontSz}px "Inter Variable", Inter, -apple-system, sans-serif`
+            ctx.textAlign = 'left'
+            ctx.textBaseline = 'middle'
+            ctx.fillStyle = '#909098'
+            ctx.fillText(line, legendTextX, lineCenterY, legendMaxW)
+          }
         }
       }
 
@@ -1738,9 +1767,11 @@ export default function App() {
 
   // #3: コピーボタンのフィードバック状態
   const [copiedKind, setCopiedKind] = useState<'text' | 'image' | 'all' | null>(null)
+  const [toastKey, setToastKey] = useState(0)
   const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   function triggerCopyFeedback(kind: 'text' | 'image' | 'all'): void {
     setCopiedKind(kind)
+    setToastKey(k => k + 1)
     if (copyFeedbackTimerRef.current) clearTimeout(copyFeedbackTimerRef.current)
     copyFeedbackTimerRef.current = setTimeout(() => setCopiedKind(null), 1500)
   }
@@ -1979,6 +2010,35 @@ export default function App() {
           />
         </div>
       </div>
+
+      {/* ── Copy toast (center-top, fades after 1.5s) ── */}
+      {copiedKind && (
+        <div
+          key={toastKey}
+          role="status"
+          aria-live="polite"
+          style={{
+            position: 'fixed',
+            top: 50,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(40,40,45,0.92)',
+            border: '1px solid #3a3a40',
+            borderRadius: 8,
+            padding: '5px 16px',
+            fontSize: 12,
+            fontWeight: 500,
+            color: '#e0e0e4',
+            pointerEvents: 'none',
+            zIndex: 1000,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+            whiteSpace: 'nowrap',
+            ...(prefersReducedMotion ? {} : { animation: 'toast-fade 1.5s ease-out forwards' })
+          }}
+        >
+          Copied!
+        </div>
+      )}
 
       {/* ── Main area ── */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
