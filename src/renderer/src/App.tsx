@@ -64,7 +64,22 @@ function medianCut(pixels: RGB[], depth: number): RGB[] {
   ]
 }
 
-/** Extract representative palette (up to 16 colors) from an offscreen canvas */
+/** RGB(0-255) → HSL (h:0-360, s/l:0-1) */
+function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+  const rn = r / 255, gn = g / 255, bn = b / 255
+  const max = Math.max(rn, gn, bn), min = Math.min(rn, gn, bn)
+  const l = (max + min) / 2
+  const d = max - min
+  if (d === 0) return [0, 0, l]
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  let h: number
+  if (max === rn) h = (gn - bn) / d + (gn < bn ? 6 : 0)
+  else if (max === gn) h = (bn - rn) / d + 2
+  else h = (rn - gn) / d + 4
+  return [h * 60, s, l]
+}
+
+/** Extract representative palette from an offscreen canvas: dominant (area) + accent (vivid) colors */
 function extractPaletteFromCanvas(canvas: HTMLCanvasElement): string[] {
   const ctx = canvas.getContext('2d')
   if (!ctx) return []
@@ -78,16 +93,39 @@ function extractPaletteFromCanvas(canvas: HTMLCanvasElement): string[] {
     pixels.push([data[i], data[i + 1], data[i + 2]])
   }
   if (pixels.length === 0) return []
-  const raw = medianCut(pixels, 5)  // 2^5 = 32 candidate colors → ensures ≥10 after dedup
-  // De-duplicate: drop colors within Euclidean distance 25 of an already-kept color
+
+  // Dominant colors (by area) via median-cut
+  const dominants = medianCut(pixels, 4)  // up to 16 buckets
+
+  // Accent colors: vivid/saturated hues that are small in area but design-relevant
+  // (brand buttons, status badges, avatars) — median-cut alone drops these.
+  const HUE_BUCKETS = 12
+  const accentBest = new Map<number, { rgb: RGB; sat: number }>()
+  const accentCount = new Map<number, number>()
+  for (const [r, g, b] of pixels) {
+    const [h, s, l] = rgbToHsl(r, g, b)
+    if (s < 0.35 || l < 0.18 || l > 0.88) continue  // skip greys / near-white / near-black
+    const hb = Math.floor((h / 360) * HUE_BUCKETS) % HUE_BUCKETS
+    accentCount.set(hb, (accentCount.get(hb) ?? 0) + 1)
+    const cur = accentBest.get(hb)
+    if (!cur || s > cur.sat) accentBest.set(hb, { rgb: [r, g, b], sat: s })
+  }
+  const minAccent = Math.max(2, Math.floor(pixels.length * 0.004))  // ≥0.4% of sampled pixels
+  const accents = [...accentBest.entries()]
+    .filter(([hb]) => (accentCount.get(hb) ?? 0) >= minAccent)
+    .sort((a, b) => b[1].sat - a[1].sat)
+    .map(e => e[1].rgb)
+
+  // Merge dominant + accent, de-duplicate by Euclidean distance, cap at 16
   const unique: RGB[] = []
-  for (const c of raw) {
+  for (const c of [...dominants, ...accents]) {
     let dup = false
     for (const u of unique) {
       const d = Math.sqrt((c[0] - u[0]) ** 2 + (c[1] - u[1]) ** 2 + (c[2] - u[2]) ** 2)
       if (d < 25) { dup = true; break }
     }
     if (!dup) unique.push(c)
+    if (unique.length >= 16) break
   }
   return unique.map(([r, g, b]) => rgbToHex(r, g, b))
 }
