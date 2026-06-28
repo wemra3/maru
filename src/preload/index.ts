@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'url'
 import { contextBridge, clipboard, nativeImage, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('maruAPI', {
@@ -12,7 +13,7 @@ contextBridge.exposeInMainWorld('maruAPI', {
     const fileUrl = clipboard.read('public.file-url')
     if (fileUrl && fileUrl.startsWith('file://')) {
       try {
-        const filePath = new URL(fileUrl).pathname
+        const filePath = fileURLToPath(fileUrl)
         const img = nativeImage.createFromPath(filePath)
         if (!img.isEmpty()) {
           const buf = img.toPNG()
