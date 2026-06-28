@@ -142,9 +142,12 @@ let _tipCounter = 0
 
 function Tooltip({ label, children }: TooltipProps) {
   const [visible, setVisible] = useState(false)
-  const [pos, setPos] = useState({ top: 0, left: 0 })
+  // pos.top = anchor for "above" mode (rect.top); pos.bottom = anchor for "below" mode (rect.bottom)
+  const [pos, setPos] = useState({ top: 0, bottom: 0, left: 0 })
   // Horizontal correction so tooltip never bleeds off viewport edge
   const [clampDx, setClampDx] = useState(0)
+  // Vertical flip: true → show tooltip below the trigger element
+  const [flipDown, setFlipDown] = useState(false)
   const tipElRef = useRef<HTMLDivElement | null>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const tipIdRef = useRef<string>('')
@@ -156,24 +159,34 @@ function Tooltip({ label, children }: TooltipProps) {
       const rect = wrapRef.current.getBoundingClientRect()
       setPos({
         top: rect.top - 6,
+        bottom: rect.bottom + 6,
         left: rect.left + rect.width / 2
       })
       setClampDx(0)
+      setFlipDown(false)
     }
     setVisible(true)
   }
 
-  // After tooltip mounts, measure and clamp horizontally (Fix #9)
+  // After tooltip mounts: vertical flip when off top edge, then horizontal clamp (Fix #9)
   useLayoutEffect(() => {
     if (!visible || !tipElRef.current) return
-    const rect = tipElRef.current.getBoundingClientRect()
+    const tipRect = tipElRef.current.getBoundingClientRect()
     const vw = window.innerWidth
-    const margin = 8
+    const hMargin = 8
+
+    // Vertical flip: if tooltip top would be above viewport, flip to show below trigger
+    if (!flipDown && tipRect.top < hMargin) {
+      setFlipDown(true)
+      return  // Re-measure after flip to get correct horizontal position
+    }
+
+    // Horizontal clamp (works for both above and below orientation)
     let dx = 0
-    if (rect.right > vw - margin) dx = (vw - margin) - rect.right
-    if (rect.left < margin) dx = margin - rect.left
+    if (tipRect.right > vw - hMargin) dx = (vw - hMargin) - tipRect.right
+    if (tipRect.left < hMargin) dx = hMargin - tipRect.left
     if (Math.abs(dx) > 0.5) setClampDx(dx)
-  }, [visible, pos])
+  }, [visible, pos, flipDown])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const child = React.Children.only(children) as React.ReactElement<any>
@@ -199,10 +212,11 @@ function Tooltip({ label, children }: TooltipProps) {
           role="tooltip"
           style={{
             position: 'fixed',
-            top: pos.top,
+            top: flipDown ? pos.bottom : pos.top,
             left: pos.left + clampDx,
-            transform: 'translate(-50%, -100%)',
-            marginTop: -6,
+            // Above: shift up by full tooltip height. Below: no vertical shift.
+            transform: flipDown ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+            marginTop: flipDown ? 0 : -6,
             background: '#3c3c40',
             color: '#e0e0e4',
             fontSize: 11,
@@ -653,7 +667,6 @@ function AnnotationShape({ ann, scale, offscreen, placement, isNew = false }: An
             x={bx} y={by}
             textAnchor="middle"
             dominantBaseline="central"
-            dy="-0.07em"
             fontSize={bf}
             fontFamily="-apple-system, BlinkMacSystemFont, sans-serif"
             fontWeight="700"
@@ -709,7 +722,6 @@ function GutterLayer({ annotations, placements }: GutterLayerProps) {
               x={bx} y={by}
               textAnchor="middle"
               dominantBaseline="central"
-              dy="-0.07em"
               fontSize={BADGE_FONT_VR}
               fontFamily="-apple-system, BlinkMacSystemFont, sans-serif"
               fontWeight="700"
@@ -1331,9 +1343,11 @@ interface AnnRowProps {
   textareaRef: (el: HTMLTextAreaElement | null) => void
   onChange: (id: string, text: string) => void
   onDelete: (id: string) => void  // #7
+  onNavigatePrev?: () => void  // ↑ on first line → focus prev textarea
+  onNavigateNext?: () => void  // ↓ on last line → focus next textarea
 }
 
-function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
+function AnnRow({ ann, textareaRef, onChange, onDelete, onNavigatePrev, onNavigateNext }: AnnRowProps) {
   return (
     <div
       style={{
@@ -1402,6 +1416,25 @@ function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
           if (e.key === 'Escape') {
             e.currentTarget.blur()
             document.querySelector<HTMLElement>('[aria-label="Image canvas"]')?.focus()
+            return
+          }
+          // ↑ on top line → focus previous annotation textarea
+          if (e.key === 'ArrowUp' && onNavigatePrev) {
+            const ta = e.currentTarget
+            const beforeCursor = ta.value.slice(0, ta.selectionStart ?? 0)
+            if (beforeCursor.lastIndexOf('\n') === -1) {
+              e.preventDefault()
+              onNavigatePrev()
+            }
+          }
+          // ↓ on bottom line → focus next annotation textarea
+          if (e.key === 'ArrowDown' && onNavigateNext) {
+            const ta = e.currentTarget
+            const afterCursor = ta.value.slice(ta.selectionEnd ?? ta.value.length)
+            if (afterCursor.indexOf('\n') === -1) {
+              e.preventDefault()
+              onNavigateNext()
+            }
           }
         }}
       />
@@ -1411,6 +1444,7 @@ function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
         {/* #7: 削除ボタン */}
         <Tooltip label="Delete">
           <button
+            tabIndex={-1}
             aria-label={`Delete annotation ${ann.n}`}
             onClick={() => onDelete(ann.id)}
             style={{
@@ -1631,8 +1665,8 @@ function drawBadgeCtx(
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillStyle = badgeTextFill(fill)
-  // Optical centering: shift text up by ~7% of font size (matches SVG dy="-0.07em")
-  ctx.fillText(String(n), bx, by - fontSz * 0.07)
+  // textBaseline='middle' centres vertically — no optical offset needed
+  ctx.fillText(String(n), bx, by)
 }
 
 /**
@@ -1771,7 +1805,8 @@ function buildAnnotatedCanvas(
           for (let s = 0; s < entry.sublines.length; s++) {
             const cy = scaledH + legendPadTop + lineIdx * legendLineH + legendLineH / 2
             if (s === 0 && entry.n !== null) {
-              drawBadgeCtx(ctx, legendPadX + legendBadgeR, cy, legendBadgeR, entry.n, STROKE_ON_DARK, legendBadgeFontSz)
+              // Legend badges: achromatic grey (#52525a, white text) — neutral vs. adaptive marker colors
+              drawBadgeCtx(ctx, legendPadX + legendBadgeR, cy, legendBadgeR, entry.n, '#52525a', legendBadgeFontSz)
             }
             ctx.font = legendFont
             ctx.textAlign = 'left'
@@ -2372,6 +2407,8 @@ export default function App() {
                   textareaRef={el => { textareaRefs.current[idx] = el }}
                   onChange={handleAnnotationTextChange}
                   onDelete={handleDeleteAnnotation}
+                  onNavigatePrev={idx > 0 ? () => textareaRefs.current[idx - 1]?.focus() : undefined}
+                  onNavigateNext={idx < annotations.length - 1 ? () => textareaRefs.current[idx + 1]?.focus() : undefined}
                 />
               ))
             )}
