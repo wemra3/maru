@@ -15,6 +15,9 @@ function createWindow(): BrowserWindow {
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
+      // sandbox: false is intentional — preload uses clipboard and nativeImage APIs directly.
+      // contextIsolation: true and nodeIntegration: false (default) remain as defence-in-depth.
+      // To re-enable sandbox, move clipboard/nativeImage calls into main-process IPC handlers.
       sandbox: false
     }
   })

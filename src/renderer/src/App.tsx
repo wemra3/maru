@@ -173,18 +173,18 @@ function Tooltip({ label, children }: TooltipProps) {
     if (!visible || !tipElRef.current) return
     const tipRect = tipElRef.current.getBoundingClientRect()
     const vw = window.innerWidth
-    const hMargin = 8
+    const edgeMargin = 8  // min clearance from any viewport edge (vertical flip + horizontal clamp)
 
     // Vertical flip: if tooltip top would be above viewport, flip to show below trigger
-    if (!flipDown && tipRect.top < hMargin) {
+    if (!flipDown && tipRect.top < edgeMargin) {
       setFlipDown(true)
       return  // Re-measure after flip to get correct horizontal position
     }
 
     // Horizontal clamp (works for both above and below orientation)
     let dx = 0
-    if (tipRect.right > vw - hMargin) dx = (vw - hMargin) - tipRect.right
-    if (tipRect.left < hMargin) dx = hMargin - tipRect.left
+    if (tipRect.right > vw - edgeMargin) dx = (vw - edgeMargin) - tipRect.right
+    if (tipRect.left < edgeMargin) dx = edgeMargin - tipRect.left
     if (Math.abs(dx) > 0.5) setClampDx(dx)
   }, [visible, pos, flipDown])
 
@@ -1441,10 +1441,9 @@ function AnnRow({ ann, textareaRef, onChange, onDelete, onNavigatePrev, onNaviga
 
       {/* 行右側のアクションボタン群 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
-        {/* #7: 削除ボタン */}
+        {/* #7: 削除ボタン — tabIndex removed (was -1) so keyboard users can Tab to it */}
         <Tooltip label="Delete">
           <button
-            tabIndex={-1}
             aria-label={`Delete annotation ${ann.n}`}
             onClick={() => onDelete(ann.id)}
             style={{
@@ -1469,6 +1468,13 @@ function AnnRow({ ann, textareaRef, onChange, onDelete, onNavigatePrev, onNaviga
               e.currentTarget.style.color = '#888890'
               e.currentTarget.style.borderColor = '#38383e'
               e.currentTarget.style.background = 'transparent'
+            }}
+            onFocus={e => {
+              e.currentTarget.style.outline = '2px solid #7070cc'  // WCAG 2.4.7 focus visible
+              e.currentTarget.style.outlineOffset = '1px'
+            }}
+            onBlur={e => {
+              e.currentTarget.style.outline = 'none'
             }}
           >
             <X size={11} strokeWidth={2} />
@@ -1871,6 +1877,7 @@ export default function App() {
 
   // Refs for inspector text inputs (for auto-focus)
   const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([])
+  const globalTextareaRef = useRef<HTMLTextAreaElement>(null)  // 'Overall comment' — ArrowDown from last AnnRow
   const [pendingFocusN, setPendingFocusN] = useState<number | null>(null)
   const inspectorScrollRef = useRef<HTMLDivElement>(null)
 
@@ -2408,7 +2415,7 @@ export default function App() {
                   onChange={handleAnnotationTextChange}
                   onDelete={handleDeleteAnnotation}
                   onNavigatePrev={idx > 0 ? () => textareaRefs.current[idx - 1]?.focus() : undefined}
-                  onNavigateNext={idx < annotations.length - 1 ? () => textareaRefs.current[idx + 1]?.focus() : undefined}
+                  onNavigateNext={idx < annotations.length - 1 ? () => textareaRefs.current[idx + 1]?.focus() : () => globalTextareaRef.current?.focus()}
                 />
               ))
             )}
@@ -2484,6 +2491,7 @@ export default function App() {
             </label>
             <textarea
               id="global-text"
+              ref={globalTextareaRef}
               value={globalText}
               onChange={e => setGlobalText(e.target.value)}
               placeholder="Additional context for the image"
