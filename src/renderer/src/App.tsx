@@ -1859,6 +1859,17 @@ export default function App() {
     copyFeedbackTimerRef.current = setTimeout(() => setCopiedKind(null), 1500)
   }
 
+  // No-image toast — shown when paste / drop yields no usable image
+  const [noImageToast, setNoImageToast] = useState(false)
+  const [noImageToastKey, setNoImageToastKey] = useState(0)
+  const noImageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  function showNoImageToast(): void {
+    setNoImageToast(true)
+    setNoImageToastKey(k => k + 1)
+    if (noImageTimerRef.current) clearTimeout(noImageTimerRef.current)
+    noImageTimerRef.current = setTimeout(() => setNoImageToast(false), 2000)
+  }
+
   // ─── Copy handlers ──────────────────────────────────────────────────────────
 
   function handleCopyText(): void {
@@ -1892,13 +1903,31 @@ export default function App() {
   const exportHandlersRef = useRef({ handleCopyText, handleCopyImage, handleCopyAll })
   useEffect(() => { exportHandlersRef.current = { handleCopyText, handleCopyImage, handleCopyAll } })
 
-  function handlePaste(): void {
-    const src = window.maruAPI?.readClipboardImage?.()
+  /** Load an image data URL into the canvas (shared by paste + drag & drop) */
+  function loadImage(src: string | null): void {
     if (src) {
       setImageSrc(src)
       setAnnotations([])
       setPaletteColors([])
       setPickedColors([])
+    } else {
+      showNoImageToast()
+    }
+  }
+
+  function handlePaste(): void {
+    loadImage(window.maruAPI?.readClipboardImage?.() ?? null)
+  }
+
+  /** Drag & drop: load first image file dropped onto the canvas area */
+  function handleFileDrop(e: React.DragEvent<HTMLDivElement>): void {
+    e.preventDefault()
+    const file = e.dataTransfer.files[0] as (File & { path?: string }) | undefined
+    const filePath = file?.path
+    if (filePath) {
+      loadImage(window.maruAPI?.readImageFromPath(filePath) ?? null)
+    } else {
+      showNoImageToast()
     }
   }
 
@@ -2126,10 +2155,43 @@ export default function App() {
         </div>
       )}
 
+      {/* ── No-image toast ── */}
+      {noImageToast && (
+        <div
+          key={noImageToastKey}
+          role="alert"
+          aria-live="assertive"
+          style={{
+            position: 'fixed',
+            top: 50,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(40,30,30,0.95)',
+            border: '1px solid #5a3a3a',
+            borderRadius: 8,
+            padding: '5px 16px',
+            fontSize: 12,
+            fontWeight: 500,
+            color: '#e8c0c0',
+            pointerEvents: 'none',
+            zIndex: 1000,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+            whiteSpace: 'nowrap',
+            ...(prefersReducedMotion ? {} : { animation: 'toast-fade 2.0s ease-out forwards' })
+          }}
+        >
+          No image found in clipboard
+        </div>
+      )}
+
       {/* ── Main area ── */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Canvas area wrapper — relative for floating toolbar */}
-        <div style={{ display: 'flex', flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
+        {/* Canvas area wrapper — relative for floating toolbar, accepts file drag & drop */}
+        <div
+          style={{ display: 'flex', flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}
+          onDragOver={e => e.preventDefault()}
+          onDrop={handleFileDrop}
+        >
           <CanvasPane
             ref={canvasPaneRef}
             imageSrc={imageSrc}

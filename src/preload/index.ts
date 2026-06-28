@@ -1,12 +1,48 @@
 import { contextBridge, clipboard, nativeImage, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('maruAPI', {
-  /** Read clipboard image as data URL (PNG). Returns null if no image. */
+  /**
+   * Read clipboard image as PNG data URL.
+   * Priority 1: file URL (Finder-copied PNG/JPEG/HEIC → actual pixels via nativeImage, not file icon).
+   * Priority 2: raw bitmap (screenshots, screen captures).
+   * Returns null if no usable image is found.
+   */
   readClipboardImage(): string | null {
+    // macOS Finder copy writes 'public.file-url' with a file:// URL
+    const fileUrl = clipboard.read('public.file-url')
+    if (fileUrl && fileUrl.startsWith('file://')) {
+      try {
+        const filePath = new URL(fileUrl).pathname
+        const img = nativeImage.createFromPath(filePath)
+        if (!img.isEmpty()) {
+          const buf = img.toPNG()
+          if (buf.length > 0) return `data:image/png;base64,${buf.toString('base64')}`
+        }
+      } catch {
+        // fall through to readImage()
+      }
+    }
+    // Fallback: raw bitmap (screenshot / ⌘C on image in browser etc.)
     const img = clipboard.readImage()
     if (img.isEmpty()) return null
     const buf = img.toPNG()
     return buf.length > 0 ? `data:image/png;base64,${buf.toString('base64')}` : null
+  },
+
+  /**
+   * Load an image from a filesystem path as PNG data URL (for drag & drop).
+   * Uses nativeImage so macOS system codecs handle HEIC, JPEG, PNG, etc.
+   * Returns null if the path cannot be read or decoded.
+   */
+  readImageFromPath(filePath: string): string | null {
+    try {
+      const img = nativeImage.createFromPath(filePath)
+      if (img.isEmpty()) return null
+      const buf = img.toPNG()
+      return buf.length > 0 ? `data:image/png;base64,${buf.toString('base64')}` : null
+    } catch {
+      return null
+    }
   },
 
   /** Write a data URL as PNG to the clipboard */
