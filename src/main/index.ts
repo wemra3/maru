@@ -54,19 +54,13 @@ function createWindow(): BrowserWindow {
 
 /** Read clipboard image as PNG data URL. Handles file URLs (Finder-copied images) and raw bitmaps. */
 ipcMain.handle('clipboard:read', (): string | null => {
-  // TEMP DEBUG: 利用可能フォーマットをターミナルに出す（原因特定後に削除）
-  console.log('[maru] clipboard formats:', clipboard.availableFormats())
-
   // Collect candidate file paths from every macOS pasteboard type that carries them
   const candidates: string[] = []
   for (const fmt of ['public.file-url', 'NSFilenamesPboardType', 'public.utf8-plain-text']) {
     let val = ''
     try { val = clipboard.read(fmt) } catch { /* ignore */ }
     if (val) {
-      console.log(`[maru] read(${fmt}):`, val.slice(0, 200))
-      // file URL(s)
       for (const m of val.matchAll(/file:\/\/[^\s"'<]+/g)) candidates.push(m[0])
-      // plist / plain path containing an image extension
       for (const m of val.matchAll(/\/[^\n\r"'<>]+\.(?:png|jpe?g|gif|webp|bmp|tiff?|heic|heif)/gi)) candidates.push(m[0])
     }
   }
@@ -76,20 +70,16 @@ ipcMain.handle('clipboard:read', (): string | null => {
     try {
       const filePath = c.startsWith('file://') ? fileURLToPath(c.trim()) : decodeURIComponent(c.trim())
       const img = nativeImage.createFromPath(filePath)
-      console.log('[maru] try path:', filePath, 'empty?', img.isEmpty())
       if (!img.isEmpty()) {
         const buf = img.toPNG()
         if (buf.length > 0) return `data:image/png;base64,${buf.toString('base64')}`
       }
-    } catch (e) {
-      console.log('[maru] path decode error:', (e as Error).message)
-    }
+    } catch { /* fall through */ }
   }
 
   // Priority 2: raw bitmap (screenshots, browser copies). NOTE: a Finder-copied file
   // also puts its ICON here — that's why we try the real file first above.
   const img = clipboard.readImage()
-  console.log('[maru] readImage empty?', img.isEmpty(), 'size:', img.getSize())
   if (img.isEmpty()) return null
   const buf = img.toPNG()
   return buf.length > 0 ? `data:image/png;base64,${buf.toString('base64')}` : null

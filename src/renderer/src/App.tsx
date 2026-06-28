@@ -85,8 +85,8 @@ function extractPaletteFromCanvas(canvas: HTMLCanvasElement): string[] {
   if (!ctx) return []
   const { width, height } = canvas
   const data = ctx.getImageData(0, 0, width, height).data
-  // Dense sampling (~40k px) so small but important accents (buttons, badges) are caught
-  const step = Math.max(1, Math.floor((width * height) / 40000))
+  // Dense sampling (~60k px) so small but important accents (status dots, badges) are caught
+  const step = Math.max(1, Math.floor((width * height) / 60000))
   const pixels: RGB[] = []
   for (let i = 0; i < data.length; i += 4 * step) {
     if (data[i + 3] < 128) continue
@@ -109,16 +109,17 @@ function extractPaletteFromCanvas(canvas: HTMLCanvasElement): string[] {
     if (cur) { cur.count++ } else { vivid.set(key, { rgb: [r, g, b], count: 1, hue: h, sat: s }) }
   }
   const HUE_BUCKETS = 12
-  const bestPerHue = new Map<number, { rgb: RGB; score: number }>()
+  const bestPerHue = new Map<number, { rgb: RGB; sat: number; prom: number }>()
   for (const v of vivid.values()) {
-    if (v.count < 2) continue
-    const score = v.count * (0.4 + v.sat)  // favor saturated so vivid badges beat large pale areas
+    if (v.count < 3) continue
     const hb = Math.floor((v.hue / 360) * HUE_BUCKETS) % HUE_BUCKETS
     const cur = bestPerHue.get(hb)
-    if (!cur || score > cur.score) bestPerHue.set(hb, { rgb: v.rgb, score })
+    // Pick the MOST SATURATED color per hue family — the punchy brand/status color,
+    // not the large pale background tint of the same hue.
+    if (!cur || v.sat > cur.sat) bestPerHue.set(hb, { rgb: v.rgb, sat: v.sat, prom: v.count * v.sat })
   }
   const accents = [...bestPerHue.values()]
-    .sort((a, b) => b.score - a.score)  // primary/brand hue first
+    .sort((a, b) => b.prom - a.prom)  // most prominent (area×saturation) first → brand primary leads
     .map(v => v.rgb)
 
   // Accents first (design-relevant) then neutrals; de-dup by Euclidean distance, cap 16
