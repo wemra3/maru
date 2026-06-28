@@ -561,7 +561,7 @@ function AnnotationShape({ ann, scale, offscreen, placement, isNew = false }: An
   const { adjBx: bx, adjBy: by } = placement
 
   // Pop animation: scale from small → overshoot → settle (spring-like)
-  const popStyle = isNew ? ({
+  const popStyle = isNew && !prefersReducedMotion ? ({
     transformBox: 'fill-box',
     transformOrigin: '50% 50%',
     animation: 'ann-pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) forwards'
@@ -803,25 +803,32 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
     img.src = imageSrc
   }, [imageSrc]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Wheel zoom — non-passive to allow preventDefault
+  // Wheel pan/zoom — non-passive to allow preventDefault
+  // macOS: 2本指スクロール → ctrlKey=false → パン, ピンチ → ctrlKey=true → ズーム (v3-C)
   useEffect(() => {
     const el = paneRef.current
     if (!el) return
     function onWheel(e: WheelEvent): void {
       e.preventDefault()
-      // ホイールは小さい刻みで (#2); ボタンズームは ZOOM_STEP=1.25 のまま
-      const factor = e.deltaY < 0 ? 1.06 : 1 / 1.06
-      const prev = scaleRef.current
-      const ns = Math.min(Math.max(prev * factor, ZOOM_MIN), ZOOM_MAX)
-      const rect = el!.getBoundingClientRect()
-      const cx = e.clientX - rect.left
-      const cy = e.clientY - rect.top
-      const off = offsetRef.current
-      applyTransform(
-        ns,
-        cx - (cx - off.x) * (ns / prev),
-        cy - (cy - off.y) * (ns / prev)
-      )
+      if (!e.ctrlKey) {
+        // 2-finger scroll = pan: offsetRef をdeltaX/deltaYで更新
+        const off = offsetRef.current
+        applyTransform(scaleRef.current, off.x - e.deltaX, off.y - e.deltaY)
+      } else {
+        // ctrl+wheel / pinch = zoom (さらにゆっくり); ボタンズームは ZOOM_STEP=1.25 のまま
+        const factor = e.deltaY < 0 ? 1.04 : 1 / 1.04
+        const prev = scaleRef.current
+        const ns = Math.min(Math.max(prev * factor, ZOOM_MIN), ZOOM_MAX)
+        const rect = el!.getBoundingClientRect()
+        const cx = e.clientX - rect.left
+        const cy = e.clientY - rect.top
+        const off = offsetRef.current
+        applyTransform(
+          ns,
+          cx - (cx - off.x) * (ns / prev),
+          cy - (cy - off.y) * (ns / prev)
+        )
+      }
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
@@ -1088,6 +1095,14 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
     else cursor = isPanning ? 'grabbing' : 'grab'
   }
 
+  // Adaptive color for cursor preview circle (matches actual marker rendering, issue #5)
+  let previewStroke = STROKE_ON_DARK
+  if (annotationTool && annotCursorPos && offscreenRef.current) {
+    const imgPos = screenToImg(annotCursorPos.x, annotCursorPos.y)
+    const lum = sampleLuminanceCircle(offscreenRef.current, imgPos.x, imgPos.y, CIRCLE_VR / scaleRef.current)
+    previewStroke = lum > 0.45 ? STROKE_ON_LIGHT : STROKE_ON_DARK
+  }
+
   return (
     <div
       ref={paneRef}
@@ -1181,7 +1196,7 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
                 width: CIRCLE_VR * 2,
                 height: CIRCLE_VR * 2,
                 borderRadius: '50%',
-                border: `2.5px solid ${STROKE_ON_DARK}`,
+                border: `2.5px solid ${previewStroke}`,
                 boxShadow: `0 0 0 1.5px rgba(0,0,0,0.45)`,
                 opacity: 0.72,
                 transform: 'translate(-50%, -50%)',
@@ -1594,33 +1609,47 @@ function drawBadgeCtx(
 /**
  * Render the base image + all annotation markers + adjacent badges onto a new canvas
  * at native image resolution. Returns a PNG data URL.
+ * If legendLines is provided, a text legend strip is burned below the image (v3-C copy-all).
  */
 function buildAnnotatedCanvas(
   imageSrc: string,
   annotations: Annotation[],
-  offscreen: HTMLCanvasElement | null
+  offscreen: HTMLCanvasElement | null,
+  legendLines?: string[]
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new globalThis.Image()
     img.onload = () => {
-      const canvas = document.createElement('canvas')
-      canvas.width = img.naturalWidth
-      canvas.height = img.naturalHeight
-      const ctx = canvas.getContext('2d')!
-      ctx.drawImage(img, 0, 0)
-
       // Scale visual constants from screen-px to image-px (Retina screenshots are 2x)
       const dpr = window.devicePixelRatio || 1
       const circleVR = CIRCLE_VR * dpr
       const badgeVR = BADGE_VR * dpr
       const badgeFontVR = BADGE_FONT_VR * dpr
 
+      // Legend layout (burned below image when legendLines provided)
+      const hasLegend = legendLines && legendLines.length > 0
+      const legendFontSz = Math.round(14 * dpr)
+      const legendLineH = Math.ceil(legendFontSz * 1.7)
+      const legendPadX = Math.ceil(16 * dpr)
+      const legendPadTop = Math.ceil(14 * dpr)
+      const legendPadBot = Math.ceil(16 * dpr)
+      const legendH = hasLegend
+        ? legendPadTop + (legendLines!.length * legendLineH) + legendPadBot
+        : 0
+
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth
+      canvas.height = img.naturalHeight + legendH
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0)
+
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+
       for (const ann of annotations) {
         const { stroke, halo } = getAdaptiveColors(offscreen, ann)
 
         ctx.save()
-        ctx.lineCap = 'round'
-        ctx.lineJoin = 'round'
 
         if (ann.kind === 'circle') {
           const r = circleVR
@@ -1644,6 +1673,24 @@ function buildAnnotatedCanvas(
         }
 
         ctx.restore()
+      }
+
+      // Burn legend strip below image (v3-C)
+      if (hasLegend && legendLines) {
+        ctx.fillStyle = '#1e1e20'
+        ctx.fillRect(0, img.naturalHeight, canvas.width, legendH)
+        ctx.font = `500 ${legendFontSz}px -apple-system, BlinkMacSystemFont, sans-serif`
+        ctx.textAlign = 'left'
+        ctx.textBaseline = 'top'
+        ctx.fillStyle = '#d8d8e0'
+        for (let i = 0; i < legendLines.length; i++) {
+          ctx.fillText(
+            legendLines[i],
+            legendPadX,
+            img.naturalHeight + legendPadTop + i * legendLineH,
+            canvas.width - legendPadX * 2
+          )
+        }
       }
 
       resolve(canvas.toDataURL('image/png'))
@@ -1710,9 +1757,11 @@ export default function App() {
   async function handleCopyAll(): Promise<void> {
     if (!imageSrc) return
     const offscreen = canvasPaneRef.current?.getOffscreen() ?? null
-    const dataUrl = await buildAnnotatedCanvas(imageSrc, annotations, offscreen)
-    const text = buildTextOutput(annotations, globalText)
-    window.maruAPI?.writeClipboardBoth(dataUrl, text)
+    // v3-C: 注釈付き画像の下にテキスト凡例を焼き込んだ1枚の合成画像を生成
+    const legendText = buildTextOutput(annotations, globalText)
+    const legendLines = legendText ? legendText.split('\n') : []
+    const dataUrl = await buildAnnotatedCanvas(imageSrc, annotations, offscreen, legendLines)
+    window.maruAPI?.writeClipboardImage(dataUrl)  // 単一PNG (旧: writeClipboardBoth)
     triggerCopyFeedback('all')  // #3
   }
 
@@ -1755,6 +1804,10 @@ export default function App() {
         void window.maruAPI?.createNewWindow()
         return
       }
+      // v3-C: Export キーボードショートカット
+      if (meta && !e.shiftKey && e.key === 't') { e.preventDefault(); handleCopyText(); return }
+      if (meta && !e.shiftKey && e.key === 'e') { e.preventDefault(); void handleCopyImage(); return }
+      if (meta && e.shiftKey && e.key.toLowerCase() === 'c') { e.preventDefault(); void handleCopyAll(); return }
 
       // Single-key tool shortcuts (no modifier)
       if (meta) return
@@ -1894,21 +1947,21 @@ export default function App() {
         >
           <IconButton
             icon={copiedKind === 'text' ? <Check size={15} strokeWidth={2.5} /> : <Type size={15} strokeWidth={1.8} />}
-            label="テキストのみコピー"
+            label="テキストのみコピー (⌘T)"
             onClick={handleCopyText}
             active={copiedKind === 'text'}
             disabled={!imageSrc}
           />
           <IconButton
             icon={copiedKind === 'image' ? <Check size={15} strokeWidth={2.5} /> : <FileImage size={15} strokeWidth={1.8} />}
-            label="注釈付き画像をコピー"
+            label="注釈付き画像をコピー (⌘E)"
             onClick={() => { void handleCopyImage() }}
             active={copiedKind === 'image'}
             disabled={!imageSrc}
           />
           <IconButton
             icon={copiedKind === 'all' ? <Check size={15} strokeWidth={2.5} /> : <Layers size={15} strokeWidth={1.8} />}
-            label="画像+テキストをコピー"
+            label="テキスト凡例付き合成画像をコピー (⌘⇧C)"
             onClick={() => { void handleCopyAll() }}
             active={copiedKind === 'all'}
             disabled={!imageSrc}
@@ -2148,7 +2201,6 @@ export default function App() {
               id="global-text"
               value={globalText}
               onChange={e => setGlobalText(e.target.value)}
-              aria-label="全体コメント"
               placeholder="画像全体への補足・コンテキスト"
               rows={3}
               style={{
