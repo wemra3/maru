@@ -1347,14 +1347,14 @@ function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
           width: 20,
           height: 20,
           borderRadius: '50%',
-          background: STROKE_ON_DARK,
+          background: '#52525a',  // 無彩色（インスペクタの番号は中立に。キャンバス上のマーカーのみ有彩色）
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           fontSize: 11,
           fontWeight: 700,
           lineHeight: '1',
-          color: '#000000',  // WCAG 1.4.3: #000 on #ff40d0 = 6.9:1 ✓
+          color: '#ffffff',  // 白文字 on #52525a ≈ 6.6:1 ✓
           marginTop: 5,
           letterSpacing: '-0.01em'
         }}
@@ -1660,8 +1660,42 @@ function buildAnnotatedCanvas(
       const legendPadX = Math.ceil(16 * dpr)
       const legendPadTop = Math.ceil(14 * dpr)
       const legendPadBot = Math.ceil(16 * dpr)
+      const legendBadgeR = Math.round(7 * dpr)
+      const legendBadgeFontSz = Math.round(8 * dpr)
+      const legendTextX = legendPadX + legendBadgeR * 2 + Math.round(8 * dpr)
+      const legendMaxW = img.naturalWidth - legendTextX - legendPadX
+      const legendFont = `300 ${legendFontSz}px "Inter Variable", Inter, -apple-system, sans-serif`
+
+      // 文字単位の折り返し（日本語=空白なしに対応）。canvas2dのmaxWidthによる横圧縮(長体)を回避
+      const wrapLegend = (meas: CanvasRenderingContext2D, text: string, maxW: number): string[] => {
+        const out: string[] = []
+        let cur = ''
+        for (const ch of text) {
+          const test = cur + ch
+          if (cur && meas.measureText(test).width > maxW) { out.push(cur); cur = ch }
+          else cur = test
+        }
+        out.push(cur)
+        return out.length ? out : ['']
+      }
+
+      type LegendEntry = { n: number | null; sublines: string[]; color: string }
+      const legendEntries: LegendEntry[] = []
+      if (hasLegend && legendLines) {
+        const meas = document.createElement('canvas').getContext('2d')!
+        meas.font = legendFont
+        for (const line of legendLines) {
+          const cp = line.codePointAt(0) ?? 0
+          if (cp >= 0x2460 && cp <= 0x2473) {
+            legendEntries.push({ n: cp - 0x245f, sublines: wrapLegend(meas, line.slice(1).trimStart(), legendMaxW), color: '#d8d8e0' })
+          } else {
+            legendEntries.push({ n: null, sublines: wrapLegend(meas, line, legendMaxW), color: '#909098' })
+          }
+        }
+      }
+      const legendTotalLines = legendEntries.reduce((s, e) => s + e.sublines.length, 0)
       const legendH = hasLegend
-        ? legendPadTop + (legendLines!.length * legendLineH) + legendPadBot
+        ? legendPadTop + legendTotalLines * legendLineH + legendPadBot
         : 0
 
       const canvas = document.createElement('canvas')
@@ -1702,49 +1736,24 @@ function buildAnnotatedCanvas(
         ctx.restore()
       }
 
-      // Burn legend strip below image (v3-C)
-      if (hasLegend && legendLines) {
+      // Burn legend strip below image (v3-C) — 折り返し済み・maxWidth不使用で長体回避
+      if (hasLegend && legendEntries.length) {
         ctx.fillStyle = '#1e1e20'
         ctx.fillRect(0, img.naturalHeight, canvas.width, legendH)
 
-        // Badge geometry for legend
-        const legendBadgeR = Math.round(7 * dpr)
-        const legendBadgeFontSz = Math.round(8 * dpr)
-        const legendTextX = legendPadX + legendBadgeR * 2 + Math.round(8 * dpr)
-        const legendMaxW = canvas.width - legendTextX - legendPadX
-
-        for (let i = 0; i < legendLines.length; i++) {
-          const line = legendLines[i]
-          const lineCenterY = img.naturalHeight + legendPadTop + i * legendLineH + legendLineH / 2
-
-          // Detect circled number prefix (①…⑳ = U+2460…U+2473)
-          const firstCp = line.codePointAt(0) ?? 0
-          if (firstCp >= 0x2460 && firstCp <= 0x2473) {
-            const n = firstCp - 0x245f  // 1-based badge number
-            const rest = line.slice(1).trimStart()
-            // Draw circle badge
-            drawBadgeCtx(
-              ctx,
-              legendPadX + legendBadgeR,
-              lineCenterY,
-              legendBadgeR,
-              n,
-              STROKE_ON_DARK,
-              legendBadgeFontSz
-            )
-            // Draw annotation text (Inter Light)
-            ctx.font = `300 ${legendFontSz}px "Inter Variable", Inter, -apple-system, sans-serif`
+        let lineIdx = 0
+        for (const entry of legendEntries) {
+          for (let s = 0; s < entry.sublines.length; s++) {
+            const cy = img.naturalHeight + legendPadTop + lineIdx * legendLineH + legendLineH / 2
+            if (s === 0 && entry.n !== null) {
+              drawBadgeCtx(ctx, legendPadX + legendBadgeR, cy, legendBadgeR, entry.n, STROKE_ON_DARK, legendBadgeFontSz)
+            }
+            ctx.font = legendFont
             ctx.textAlign = 'left'
             ctx.textBaseline = 'middle'
-            ctx.fillStyle = '#d8d8e0'
-            ctx.fillText(rest, legendTextX, lineCenterY, legendMaxW)
-          } else {
-            // Global comment line — indented to align with annotation text
-            ctx.font = `300 ${legendFontSz}px "Inter Variable", Inter, -apple-system, sans-serif`
-            ctx.textAlign = 'left'
-            ctx.textBaseline = 'middle'
-            ctx.fillStyle = '#909098'
-            ctx.fillText(line, legendTextX, lineCenterY, legendMaxW)
+            ctx.fillStyle = entry.color
+            ctx.fillText(entry.sublines[s], legendTextX, cy)
+            lineIdx++
           }
         }
       }
