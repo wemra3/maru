@@ -42,7 +42,9 @@ async function afterPack(context) {
     version: FuseVersion.V1,
     resetAdHocDarwinSignature: platform === 'mac', // re-sign ad-hoc after fuse flip
     [FuseV1Options.RunAsNode]: false,
-    [FuseV1Options.EnableCookieEncryption]: true,
+    // maru stores no cookies/secrets and has no network — cookie encryption only adds a
+    // scary "maru Safe Storage" Keychain password prompt on every launch. Disabled.
+    [FuseV1Options.EnableCookieEncryption]: false,
     [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
     [FuseV1Options.EnableNodeCliInspectArguments]: false,
     // maru loads its UI via loadFile (file://). These two MUST allow that:
