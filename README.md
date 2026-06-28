@@ -35,7 +35,7 @@ maru is purpose-built for that handoff. Paste a screenshot, stamp numbered marke
 
 Download the latest `maru-*.dmg` from [Releases](../../releases).
 
-**Note: maru is unsigned.** macOS will block it on first launch. Right-click the app icon → **Open** → Open. You only need to do this once.
+**Note: maru is unsigned.** macOS blocks it on first launch. On macOS 15 (Sequoia) the old right-click → Open trick no longer works — instead open **System Settings → Privacy & Security**, scroll to the message about `maru.app`, and click **Open Anyway**, then reopen maru and click **Open**. (Developer shortcut: `xattr -dr com.apple.quarantine /Applications/maru.app`.) You only need to do this once.
 
 ---
 
