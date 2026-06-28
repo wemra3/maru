@@ -1212,7 +1212,7 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
               aria-hidden="true"
               style={{
                 position: 'absolute',
-                left: eyeHover.px + 18,
+                left: eyeHover.px + 16,
                 top: Math.max(0, eyeHover.py - 36),
                 background: '#252527',
                 border: '1px solid #3a3a40',
@@ -1655,19 +1655,19 @@ function buildAnnotatedCanvas(
           const r = circleVR
           // halo ring
           ctx.beginPath(); ctx.arc(ann.x, ann.y, r, 0, Math.PI * 2)
-          ctx.strokeStyle = halo; ctx.lineWidth = HALO_STROKE_W; ctx.stroke()
+          ctx.strokeStyle = halo; ctx.lineWidth = HALO_STROKE_W * dpr; ctx.stroke()
           // marker ring
           ctx.beginPath(); ctx.arc(ann.x, ann.y, r, 0, Math.PI * 2)
-          ctx.strokeStyle = stroke; ctx.lineWidth = MARKER_STROKE_W; ctx.stroke()
+          ctx.strokeStyle = stroke; ctx.lineWidth = MARKER_STROKE_W * dpr; ctx.stroke()
           // badge (adjacent: top-right of circle)
           drawBadgeCtx(ctx, ann.x + r + badgeVR * 0.6, ann.y - r - badgeVR * 0.6, badgeVR, ann.n, stroke, badgeFontVR)
         } else {
           // halo rect
           ctx.beginPath(); roundRectPath(ctx, ann.x, ann.y, ann.w, ann.h, RECT_RX)
-          ctx.strokeStyle = halo; ctx.lineWidth = HALO_STROKE_W; ctx.stroke()
+          ctx.strokeStyle = halo; ctx.lineWidth = HALO_STROKE_W * dpr; ctx.stroke()
           // marker rect
           ctx.beginPath(); roundRectPath(ctx, ann.x, ann.y, ann.w, ann.h, RECT_RX)
-          ctx.strokeStyle = stroke; ctx.lineWidth = MARKER_STROKE_W; ctx.stroke()
+          ctx.strokeStyle = stroke; ctx.lineWidth = MARKER_STROKE_W * dpr; ctx.stroke()
           // badge (adjacent: top-right of rect)
           drawBadgeCtx(ctx, ann.x + ann.w + badgeVR * 0.6, ann.y - badgeVR * 0.6, badgeVR, ann.n, stroke, badgeFontVR)
         }
@@ -1765,6 +1765,10 @@ export default function App() {
     triggerCopyFeedback('all')  // #3
   }
 
+  // Ref to latest export handlers — prevents stale closure in keyboard useEffect(fn, [])
+  const exportHandlersRef = useRef({ handleCopyText, handleCopyImage, handleCopyAll })
+  useEffect(() => { exportHandlersRef.current = { handleCopyText, handleCopyImage, handleCopyAll } })
+
   function handlePaste(): void {
     const src = window.maruAPI?.readClipboardImage?.()
     if (src) {
@@ -1804,10 +1808,10 @@ export default function App() {
         void window.maruAPI?.createNewWindow()
         return
       }
-      // v3-C: Export キーボードショートカット
-      if (meta && !e.shiftKey && e.key === 't') { e.preventDefault(); handleCopyText(); return }
-      if (meta && !e.shiftKey && e.key === 'e') { e.preventDefault(); void handleCopyImage(); return }
-      if (meta && e.shiftKey && e.key.toLowerCase() === 'c') { e.preventDefault(); void handleCopyAll(); return }
+      // v3-C: Export キーボードショートカット（ref 経由で最新ハンドラを呼ぶ — stale closure 防止）
+      if (meta && !e.shiftKey && e.key === 't') { e.preventDefault(); exportHandlersRef.current.handleCopyText(); return }
+      if (meta && !e.shiftKey && e.key === 'e') { e.preventDefault(); void exportHandlersRef.current.handleCopyImage(); return }
+      if (meta && e.shiftKey && e.key.toLowerCase() === 'c') { e.preventDefault(); void exportHandlersRef.current.handleCopyAll(); return }
 
       // Single-key tool shortcuts (no modifier)
       if (meta) return
@@ -2002,12 +2006,12 @@ export default function App() {
               transform: 'translateX(-50%)',
               display: 'flex',
               alignItems: 'center',
-              gap: 2,
+              gap: 4,
               padding: '0 8px',
               height: 40,
               background: '#252527',
               border: '1px solid #3a3a40',
-              borderRadius: 10,
+              borderRadius: 12,
               boxShadow: '0 4px 20px rgba(0,0,0,0.55)',
               zIndex: 100,
               pointerEvents: 'auto'
@@ -2029,14 +2033,14 @@ export default function App() {
             />
             <IconButton
               icon={<AnnotationToolIcon />}
-              label={annotationTool ? '注釈ツール ON — クリック=円 / ドラッグ=矩形 / 再クリック=削除' : '注釈ツール (A)'}
+              label={annotationTool ? '注釈ツール ON (A) — クリック=円 / ドラッグ=矩形 / 再クリック=削除' : '注釈ツール (A)'}
               onClick={toggleAnnotationTool}
               active={annotationTool}
               disabled={!imageSrc}
             />
             <IconButton
               icon={<Pipette size={15} strokeWidth={1.8} />}
-              label={eyedropperTool ? 'スポイト ON — クリックで色取得' : 'スポイト (I)'}
+              label={eyedropperTool ? 'スポイト ON (I) — クリックで色取得' : 'スポイト (I)'}
               onClick={toggleEyedropperTool}
               active={eyedropperTool}
               disabled={!imageSrc}
@@ -2085,17 +2089,20 @@ export default function App() {
         >
           {/* 上限到達トースト — absolute so it doesn't consume layout space */}
           {maxReached && (
-            <div style={{
-              position: 'absolute',
-              top: 8,
-              left: 14,
-              right: 12,
-              zIndex: 10,
-              fontSize: 10,
-              color: '#e07c00',
-              fontWeight: 500,
-              pointerEvents: 'none'
-            }}>
+            <div
+              role="alert"
+              style={{
+                position: 'absolute',
+                top: 8,
+                left: 14,
+                right: 12,
+                zIndex: 10,
+                fontSize: 10,
+                color: '#e07c00',
+                fontWeight: 500,
+                pointerEvents: 'none'
+              }}
+            >
               これ以上追加できません（最大{MAX_ANNOTATIONS}）
             </div>
           )}

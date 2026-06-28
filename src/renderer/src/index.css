@@ -46,7 +46,7 @@ button:focus-visible {
 
 /* ── Textarea placeholder ───────────────────────────────────────────────── */
 textarea::placeholder {
-  color: #72727a;  /* WCAG 1.4.3: ≈4.7:1 on #1e1e20 ✓ */
+  color: #909098;  /* WCAG 1.4.3: ≈5.25:1 on #1e1e20 ✓ (旧 #72727a は ≈3.49:1 で違反) */
 }
 
 /* ── Text selection ─────────────────────────────────────────────────────── */

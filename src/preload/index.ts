@@ -22,14 +22,6 @@ contextBridge.exposeInMainWorld('maruAPI', {
     clipboard.writeText(text)
   },
 
-  /** Write both a PNG image and plain text to the clipboard simultaneously */
-  writeClipboardBoth(dataUrl: string, text: string): void {
-    const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '')
-    const buf = Buffer.from(base64, 'base64')
-    const img = nativeImage.createFromBuffer(buf)
-    clipboard.write({ image: img, text })
-  },
-
   /** 新規ウィンドウを開く (#10)。autoLoad=true で開いた窓に auto-paste を送信 (#9) */
   createNewWindow(autoLoad: boolean = false): Promise<void> {
     return ipcRenderer.invoke('new-window', autoLoad)
