@@ -97,20 +97,28 @@ function extractPaletteFromCanvas(canvas: HTMLCanvasElement): string[] {
   // Dominant (neutral/background) colors by area
   const dominants = medianCut(pixels, 3)  // up to 8 — backgrounds/neutrals
 
-  // Accent colors: rank by frequency AMONG VIVID pixels only, so the white/grey
-  // background doesn't drown them. The most common vivid color = the primary/brand color.
-  const vivid = new Map<string, { rgb: RGB; count: number }>()
+  // Accent colors: among VIVID pixels only (white/grey bg excluded), pick the best color
+  // PER HUE FAMILY so minority hues (green/orange status colors) aren't crowded out by the
+  // dominant brand hue. Score = frequency × saturation, so small-but-vivid badges still win.
+  const vivid = new Map<string, { rgb: RGB; count: number; hue: number; sat: number }>()
   for (const [r, g, b] of pixels) {
-    const [, s, l] = rgbToHsl(r, g, b)
-    if (s < 0.28 || l < 0.12 || l > 0.94) continue  // skip neutrals / near-white / near-black
+    const [h, s, l] = rgbToHsl(r, g, b)
+    if (s < 0.25 || l < 0.12 || l > 0.94) continue  // skip neutrals / near-white / near-black
     const key = `${r >> 4},${g >> 4},${b >> 4}`  // quantize to 16-step grid
     const cur = vivid.get(key)
-    if (cur) { cur.count++ } else { vivid.set(key, { rgb: [r, g, b], count: 1 }) }
+    if (cur) { cur.count++ } else { vivid.set(key, { rgb: [r, g, b], count: 1, hue: h, sat: s }) }
   }
-  const accents = [...vivid.values()]
-    .filter(v => v.count >= 2)
-    .sort((a, b) => b.count - a.count)  // primary/brand color first
-    .slice(0, 12)
+  const HUE_BUCKETS = 12
+  const bestPerHue = new Map<number, { rgb: RGB; score: number }>()
+  for (const v of vivid.values()) {
+    if (v.count < 2) continue
+    const score = v.count * (0.4 + v.sat)  // favor saturated so vivid badges beat large pale areas
+    const hb = Math.floor((v.hue / 360) * HUE_BUCKETS) % HUE_BUCKETS
+    const cur = bestPerHue.get(hb)
+    if (!cur || score > cur.score) bestPerHue.set(hb, { rgb: v.rgb, score })
+  }
+  const accents = [...bestPerHue.values()]
+    .sort((a, b) => b.score - a.score)  // primary/brand hue first
     .map(v => v.rgb)
 
   // Accents first (design-relevant) then neutrals; de-dup by Euclidean distance, cap 16
