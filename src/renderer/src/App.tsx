@@ -1575,6 +1575,9 @@ export default function App() {
   const [pickedColors, setPickedColors] = useState<string[]>([])
   const [globalText, setGlobalText] = useState('')
   const canvasPaneRef = useRef<CanvasPaneHandle>(null)
+  // Tracks whether an image is loaded — used in keyboard handler to avoid stale closure
+  const hasImageRef = useRef<boolean>(false)
+  useEffect(() => { hasImageRef.current = !!imageSrc }, [imageSrc])
 
   // Refs for inspector text inputs (for auto-focus)
   const textareaRefs = useRef<(HTMLTextAreaElement | null)[]>([])
@@ -1648,16 +1651,56 @@ export default function App() {
     await window.maruAPI?.createNewWindow(true)
   }
 
-  // ⌘V / ⌘N global keyboard shortcuts
+  // ⌘V / ⌘N / V / A / I / Esc / + / − global keyboard shortcuts
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent): void {
       // textarea / input へのテキスト貼付と競合しないようフォーカス先を確認
       if (e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement) return
-      if ((e.metaKey || e.ctrlKey) && e.key === 'v') handlePaste()
+
+      const meta = e.metaKey || e.ctrlKey
+
+      if (meta && e.key === 'v') { handlePaste(); return }
       // #10: ⌘N で新規ウィンドウ
-      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+      if (meta && e.key === 'n') {
         e.preventDefault()
         void window.maruAPI?.createNewWindow()
+        return
+      }
+
+      // Single-key tool shortcuts (no modifier)
+      if (meta) return
+      switch (e.key) {
+        case 'v': case 'V':
+          // V: 選択 / パン モード
+          setAnnotationTool(false); setEyedropperTool(false)
+          break
+        case 'a': case 'A':
+          // A: 注釈ツール (画像があるときのみ)
+          if (hasImageRef.current) { setAnnotationTool(true); setEyedropperTool(false) }
+          break
+        case 'i': case 'I':
+          // I: スポイト (画像があるときのみ)
+          if (hasImageRef.current) { setEyedropperTool(true); setAnnotationTool(false) }
+          break
+        case 'Escape':
+          // Esc: ツール解除
+          setAnnotationTool(false); setEyedropperTool(false)
+          break
+        case '+': case '=':
+          // +/= : ズームイン
+          if (hasImageRef.current) canvasPaneRef.current?.zoomIn()
+          break
+        case '-':
+          // −: ズームアウト
+          if (hasImageRef.current) canvasPaneRef.current?.zoomOut()
+          break
+        case 's': case 'S':
+          // S: スクリーンキャプチャ
+          e.preventDefault()
+          void handleCapture()
+          break
+        default:
+          break
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -1720,7 +1763,7 @@ export default function App() {
         style={{
           display: 'flex',
           alignItems: 'center',
-          height: 44,
+          height: 40,
           background: '#252527',
           borderBottom: '1px solid #2e2e32',
           flexShrink: 0,
@@ -1812,14 +1855,14 @@ export default function App() {
           <div
             style={{
               position: 'absolute',
-              bottom: 20,
+              bottom: 16,
               left: '50%',
               transform: 'translateX(-50%)',
               display: 'flex',
               alignItems: 'center',
               gap: 2,
               padding: '0 8px',
-              height: 44,
+              height: 40,
               background: '#252527',
               border: '1px solid #3a3a40',
               borderRadius: 10,
@@ -1861,13 +1904,13 @@ export default function App() {
 
             <IconButton
               icon={<ZoomIn size={15} strokeWidth={1.8} />}
-              label="ズームイン"
+              label="ズームイン (+)"
               onClick={() => canvasPaneRef.current?.zoomIn()}
               disabled={!imageSrc}
             />
             <IconButton
               icon={<ZoomOut size={15} strokeWidth={1.8} />}
-              label="ズームアウト"
+              label="ズームアウト (−)"
               onClick={() => canvasPaneRef.current?.zoomOut()}
               disabled={!imageSrc}
             />
@@ -1877,7 +1920,7 @@ export default function App() {
             {/* スクリーンキャプチャ */}
             <IconButton
               icon={<Camera size={15} strokeWidth={1.8} />}
-              label="スクリーンショットを撮影して新規ウィンドウに開く"
+              label="スクリーンキャプチャして新規ウィンドウへ (S)"
               onClick={() => { void handleCapture() }}
             />
           </div>
@@ -1894,32 +1937,26 @@ export default function App() {
             background: '#232325',
             display: 'flex',
             flexDirection: 'column',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            position: 'relative'
           }}
         >
-          {/* Inspector header */}
-          <div
-            style={{
-              padding: '8px 10px 8px 14px',
-              borderBottom: '1px solid #2e2e32',
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: '0.06em',
-              textTransform: 'uppercase',
-              color: '#a0a0a8',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              flexShrink: 0
-            }}
-          >
-            {/* 上限到達トースト */}
-            {maxReached && (
-              <span style={{ fontSize: 10, color: '#e07c00', fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>
-                これ以上追加できません（最大{MAX_ANNOTATIONS}）
-              </span>
-            )}
-          </div>
+          {/* 上限到達トースト — absolute so it doesn't consume layout space */}
+          {maxReached && (
+            <div style={{
+              position: 'absolute',
+              top: 8,
+              left: 14,
+              right: 12,
+              zIndex: 10,
+              fontSize: 10,
+              color: '#e07c00',
+              fontWeight: 500,
+              pointerEvents: 'none'
+            }}>
+              これ以上追加できません（最大{MAX_ANNOTATIONS}）
+            </div>
+          )}
 
           {/* Annotation rows */}
           <div
