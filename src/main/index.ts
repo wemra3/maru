@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, clipboard, nativeImage } from 'electron'
 import { fileURLToPath } from 'url'
 import { join } from 'path'
-import { exec } from 'child_process'
+import { execFile } from 'child_process'
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -125,7 +125,7 @@ ipcMain.handle('new-window', (_event, autoLoad: boolean = false) => {
 // screencapture -i -c : 範囲選択 → クリップボードに書き込み
 ipcMain.handle('capture-screen', () => {
   return new Promise<void>((resolve, reject) => {
-    exec('screencapture -i -c', (err) => {
+    execFile('screencapture', ['-i', '-c'], (err) => {
       if (err) reject(err)
       else resolve()
     })
