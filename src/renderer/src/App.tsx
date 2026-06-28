@@ -1762,7 +1762,12 @@ function buildAnnotatedCanvas(
       const legendBadgeR = Math.round(7 * dpr)
       const legendBadgeFontSz = Math.round(8 * dpr)
       const legendTextX = legendPadX + legendBadgeR * 2 + Math.round(8 * dpr)
-      const legendMaxW = Math.max(80, scaledW - legendTextX - legendPadX)
+      // Guarantee the legend can fit ~15 chars/line even for tall/narrow images:
+      // widen the output canvas (and center the image) instead of wrapping to 1 char/line.
+      const minLegendContentW = legendFontSz * 15
+      const canvasW = Math.max(scaledW, legendTextX + minLegendContentW + legendPadX)
+      const imgX = Math.round((canvasW - scaledW) / 2)
+      const legendMaxW = Math.max(80, canvasW - legendTextX - legendPadX)
       const legendFont = `300 ${legendFontSz}px "Inter Variable", Inter, -apple-system, sans-serif`
 
       // 文字単位の折り返し（日本語=空白なしに対応）。canvas2dのmaxWidthによる横圧縮(長体)を回避
@@ -1798,11 +1803,14 @@ function buildAnnotatedCanvas(
         : 0
 
       const canvas = document.createElement('canvas')
-      canvas.width = scaledW
+      canvas.width = canvasW
       canvas.height = scaledH + legendH
       const ctx = canvas.getContext('2d')!
-      // Draw image at display scale
-      ctx.drawImage(img, 0, 0, scaledW, scaledH)
+      // Fill bg (matches legend strip) so widened side-margins aren't transparent/black
+      ctx.fillStyle = '#1e1e20'
+      ctx.fillRect(0, 0, canvasW, scaledH + legendH)
+      // Draw image at display scale, horizontally centered when the canvas is widened
+      ctx.drawImage(img, imgX, 0, scaledW, scaledH)
 
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
@@ -1813,8 +1821,8 @@ function buildAnnotatedCanvas(
 
         ctx.save()
 
-        // Convert image coords → output canvas px
-        const outX = ann.x * scale * dpr
+        // Convert image coords → output canvas px (offset by imgX when canvas is widened)
+        const outX = imgX + ann.x * scale * dpr
         const outY = ann.y * scale * dpr
 
         if (ann.kind === 'circle') {
