@@ -85,8 +85,8 @@ function extractPaletteFromCanvas(canvas: HTMLCanvasElement): string[] {
   if (!ctx) return []
   const { width, height } = canvas
   const data = ctx.getImageData(0, 0, width, height).data
-  // Sample at most ~4096 pixels for performance
-  const step = Math.max(1, Math.floor((width * height) / 4096))
+  // Dense sampling (~40k px) so small but important accents (buttons, badges) are caught
+  const step = Math.max(1, Math.floor((width * height) / 40000))
   const pixels: RGB[] = []
   for (let i = 0; i < data.length; i += 4 * step) {
     if (data[i + 3] < 128) continue
@@ -94,35 +94,32 @@ function extractPaletteFromCanvas(canvas: HTMLCanvasElement): string[] {
   }
   if (pixels.length === 0) return []
 
-  // Dominant colors (by area) via median-cut
-  const dominants = medianCut(pixels, 4)  // up to 16 buckets
+  // Dominant (neutral/background) colors by area
+  const dominants = medianCut(pixels, 3)  // up to 8 — backgrounds/neutrals
 
-  // Accent colors: vivid/saturated hues that are small in area but design-relevant
-  // (brand buttons, status badges, avatars) — median-cut alone drops these.
-  const HUE_BUCKETS = 12
-  const accentBest = new Map<number, { rgb: RGB; sat: number }>()
-  const accentCount = new Map<number, number>()
+  // Accent colors: rank by frequency AMONG VIVID pixels only, so the white/grey
+  // background doesn't drown them. The most common vivid color = the primary/brand color.
+  const vivid = new Map<string, { rgb: RGB; count: number }>()
   for (const [r, g, b] of pixels) {
-    const [h, s, l] = rgbToHsl(r, g, b)
-    if (s < 0.35 || l < 0.18 || l > 0.88) continue  // skip greys / near-white / near-black
-    const hb = Math.floor((h / 360) * HUE_BUCKETS) % HUE_BUCKETS
-    accentCount.set(hb, (accentCount.get(hb) ?? 0) + 1)
-    const cur = accentBest.get(hb)
-    if (!cur || s > cur.sat) accentBest.set(hb, { rgb: [r, g, b], sat: s })
+    const [, s, l] = rgbToHsl(r, g, b)
+    if (s < 0.28 || l < 0.12 || l > 0.94) continue  // skip neutrals / near-white / near-black
+    const key = `${r >> 4},${g >> 4},${b >> 4}`  // quantize to 16-step grid
+    const cur = vivid.get(key)
+    if (cur) { cur.count++ } else { vivid.set(key, { rgb: [r, g, b], count: 1 }) }
   }
-  const minAccent = Math.max(2, Math.floor(pixels.length * 0.004))  // ≥0.4% of sampled pixels
-  const accents = [...accentBest.entries()]
-    .filter(([hb]) => (accentCount.get(hb) ?? 0) >= minAccent)
-    .sort((a, b) => b[1].sat - a[1].sat)
-    .map(e => e[1].rgb)
+  const accents = [...vivid.values()]
+    .filter(v => v.count >= 2)
+    .sort((a, b) => b.count - a.count)  // primary/brand color first
+    .slice(0, 12)
+    .map(v => v.rgb)
 
-  // Merge dominant + accent, de-duplicate by Euclidean distance, cap at 16
+  // Accents first (design-relevant) then neutrals; de-dup by Euclidean distance, cap 16
   const unique: RGB[] = []
-  for (const c of [...dominants, ...accents]) {
+  for (const c of [...accents, ...dominants]) {
     let dup = false
     for (const u of unique) {
       const d = Math.sqrt((c[0] - u[0]) ** 2 + (c[1] - u[1]) ** 2 + (c[2] - u[2]) ** 2)
-      if (d < 25) { dup = true; break }
+      if (d < 20) { dup = true; break }
     }
     if (!dup) unique.push(c)
     if (unique.length >= 16) break
