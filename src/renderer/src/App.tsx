@@ -12,13 +12,12 @@ import {
   ZoomIn,
   ZoomOut,
   Crosshair,
-  Minus,
+  MousePointer,
   X,
   Type,
   FileImage,
   Layers,
   Pipette,
-  Copy,
   Check,
   Camera,
   Mic,
@@ -1716,13 +1715,11 @@ export default function App() {
         color: '#e0e0e4'
       }}
     >
-      {/* ── Toolbar ── */}
+      {/* ── Title bar ── */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: 2,
-          padding: '0 12px',
           height: 44,
           background: '#252527',
           borderBottom: '1px solid #2e2e32',
@@ -1734,7 +1731,7 @@ export default function App() {
         {/* macOS traffic light spacer */}
         <div style={{ width: 72, flexShrink: 0 }} />
 
-        {/* App name — absolutely centered so it doesn't shift with button count */}
+        {/* App name — absolutely centered */}
         <div
           style={{
             position: 'absolute',
@@ -1752,106 +1749,139 @@ export default function App() {
           maru
         </div>
 
+        {/* Export buttons — right side */}
         <div
           style={{
+            marginLeft: 'auto',
             display: 'flex',
             alignItems: 'center',
             gap: 4,
+            padding: '0 12px',
             WebkitAppRegion: 'no-drag'
           } as WithDragRegion}
         >
           <IconButton
-            icon={<ClipboardPaste size={15} strokeWidth={1.8} />}
-            label="クリップボードから貼り付け (⌘V)"
-            onClick={handlePaste}
-          />
-
-          <ToolbarDivider />
-
-          <IconButton
-            icon={<Crosshair size={15} strokeWidth={1.8} />}
-            label={annotationTool ? '注釈ツール ON — クリック=円 / ドラッグ=矩形 / 再クリック=削除' : '注釈ツール'}
-            onClick={toggleAnnotationTool}
-            active={annotationTool}
-            disabled={!imageSrc}
-          />
-          <IconButton
-            icon={<Pipette size={15} strokeWidth={1.8} />}
-            label={eyedropperTool ? 'スポイト ON — クリックで色取得' : 'スポイト'}
-            onClick={toggleEyedropperTool}
-            active={eyedropperTool}
-            disabled={!imageSrc}
-          />
-
-          <ToolbarDivider />
-
-          <IconButton
-            icon={<ZoomIn size={15} strokeWidth={1.8} />}
-            label="ズームイン"
-            onClick={() => canvasPaneRef.current?.zoomIn()}
-            disabled={!imageSrc}
-          />
-          <IconButton
-            icon={<ZoomOut size={15} strokeWidth={1.8} />}
-            label="ズームアウト"
-            onClick={() => canvasPaneRef.current?.zoomOut()}
-            disabled={!imageSrc}
-          />
-
-          <ToolbarDivider />
-
-          <IconButton
-            icon={<Type size={15} strokeWidth={1.8} />}
+            icon={copiedKind === 'text' ? <Check size={15} strokeWidth={2.5} /> : <Type size={15} strokeWidth={1.8} />}
             label="テキストのみコピー"
             onClick={handleCopyText}
+            active={copiedKind === 'text'}
             disabled={!imageSrc}
           />
           <IconButton
-            icon={<FileImage size={15} strokeWidth={1.8} />}
+            icon={copiedKind === 'image' ? <Check size={15} strokeWidth={2.5} /> : <FileImage size={15} strokeWidth={1.8} />}
             label="注釈付き画像をコピー"
             onClick={() => { void handleCopyImage() }}
+            active={copiedKind === 'image'}
             disabled={!imageSrc}
           />
           <IconButton
-            icon={<Layers size={15} strokeWidth={1.8} />}
+            icon={copiedKind === 'all' ? <Check size={15} strokeWidth={2.5} /> : <Layers size={15} strokeWidth={1.8} />}
             label="画像+テキストをコピー"
             onClick={() => { void handleCopyAll() }}
+            active={copiedKind === 'all'}
             disabled={!imageSrc}
-          />
-
-          <ToolbarDivider />
-
-          {/* #9: スクリーンキャプチャ */}
-          <IconButton
-            icon={<Camera size={15} strokeWidth={1.8} />}
-            label="スクリーンショットを撮影して新規ウィンドウに開く"
-            onClick={() => { void handleCapture() }}
           />
         </div>
       </div>
 
       {/* ── Main area ── */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-        {/* Canvas pane */}
-        <CanvasPane
-          ref={canvasPaneRef}
-          imageSrc={imageSrc}
-          onPaste={handlePaste}
-          annotations={annotations}
-          annotationTool={annotationTool}
-          onAnnotationsChange={setAnnotations}
-          onAnnotationAdded={n => setPendingFocusN(n)}
-          onMaxReached={showMaxReached}
-          eyedropperTool={eyedropperTool}
-          onPickColor={hex => {
-            const lower = hex.toLowerCase()
-            if (![...paletteColors, ...pickedColors].some(c => c.toLowerCase() === lower)) {
-              setPickedColors(prev => [...prev, hex])
-            }
-            window.maruAPI?.writeClipboardText(hex)
-          }}
-          onOffscreenReady={handleOffscreenReady}
-        />
+        {/* Canvas area wrapper — relative for floating toolbar */}
+        <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
+          <CanvasPane
+            ref={canvasPaneRef}
+            imageSrc={imageSrc}
+            onPaste={handlePaste}
+            annotations={annotations}
+            annotationTool={annotationTool}
+            onAnnotationsChange={setAnnotations}
+            onAnnotationAdded={n => setPendingFocusN(n)}
+            onMaxReached={showMaxReached}
+            eyedropperTool={eyedropperTool}
+            onPickColor={hex => {
+              const lower = hex.toLowerCase()
+              if (![...paletteColors, ...pickedColors].some(c => c.toLowerCase() === lower)) {
+                setPickedColors(prev => [...prev, hex])
+              }
+              window.maruAPI?.writeClipboardText(hex)
+            }}
+            onOffscreenReady={handleOffscreenReady}
+          />
+
+          {/* ── Floating toolbar (Figma-style, canvas bottom center) ── */}
+          <div
+            style={{
+              position: 'absolute',
+              bottom: 20,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              padding: '0 8px',
+              height: 44,
+              background: '#252527',
+              border: '1px solid #3a3a40',
+              borderRadius: 10,
+              boxShadow: '0 4px 20px rgba(0,0,0,0.55)',
+              zIndex: 100,
+              pointerEvents: 'auto'
+            }}
+          >
+            <IconButton
+              icon={<ClipboardPaste size={15} strokeWidth={1.8} />}
+              label="クリップボードから貼り付け (⌘V)"
+              onClick={handlePaste}
+            />
+
+            <ToolbarDivider />
+
+            <IconButton
+              icon={<MousePointer size={15} strokeWidth={1.8} />}
+              label="選択 / パン (V)"
+              onClick={() => { setAnnotationTool(false); setEyedropperTool(false) }}
+              active={!annotationTool && !eyedropperTool}
+            />
+            <IconButton
+              icon={<Crosshair size={15} strokeWidth={1.8} />}
+              label={annotationTool ? '注釈ツール ON — クリック=円 / ドラッグ=矩形 / 再クリック=削除' : '注釈ツール (A)'}
+              onClick={toggleAnnotationTool}
+              active={annotationTool}
+              disabled={!imageSrc}
+            />
+            <IconButton
+              icon={<Pipette size={15} strokeWidth={1.8} />}
+              label={eyedropperTool ? 'スポイト ON — クリックで色取得' : 'スポイト (I)'}
+              onClick={toggleEyedropperTool}
+              active={eyedropperTool}
+              disabled={!imageSrc}
+            />
+
+            <ToolbarDivider />
+
+            <IconButton
+              icon={<ZoomIn size={15} strokeWidth={1.8} />}
+              label="ズームイン"
+              onClick={() => canvasPaneRef.current?.zoomIn()}
+              disabled={!imageSrc}
+            />
+            <IconButton
+              icon={<ZoomOut size={15} strokeWidth={1.8} />}
+              label="ズームアウト"
+              onClick={() => canvasPaneRef.current?.zoomOut()}
+              disabled={!imageSrc}
+            />
+
+            <ToolbarDivider />
+
+            {/* スクリーンキャプチャ */}
+            <IconButton
+              icon={<Camera size={15} strokeWidth={1.8} />}
+              label="スクリーンショットを撮影して新規ウィンドウに開く"
+              onClick={() => { void handleCapture() }}
+            />
+          </div>
+        </div>
 
         {/* Divider */}
         <div style={{ width: 1, background: '#2e2e32', flexShrink: 0 }} />
@@ -1883,91 +1913,12 @@ export default function App() {
               flexShrink: 0
             }}
           >
-            {/* #5: "Inspector" テキスト削除 → Minus アイコンのみ */}
-            <Minus size={10} strokeWidth={2} />
-
-            {/* #6: 上限到達トースト */}
+            {/* 上限到達トースト */}
             {maxReached && (
               <span style={{ fontSize: 10, color: '#e07c00', fontWeight: 400, letterSpacing: 0, textTransform: 'none' }}>
                 これ以上追加できません（最大{MAX_ANNOTATIONS}）
               </span>
             )}
-
-            {/* #3: インスペクタ内コピー3種ボタン */}
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 3 }}>
-              <Tooltip label="テキストのみコピー">
-                <button
-                  aria-label="テキストのみコピー"
-                  onClick={handleCopyText}
-                  disabled={!imageSrc}
-                  style={{
-                    width: 24,
-                    height: 24,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: 'transparent',
-                    border: '1px solid #38383e',
-                    borderRadius: 4,
-                    color: imageSrc ? (copiedKind === 'text' ? '#60c060' : '#888890') : '#44444a',
-                    cursor: imageSrc ? 'pointer' : 'default',
-                    padding: 0
-                  }}
-                  onMouseEnter={e => { if (imageSrc && copiedKind !== 'text') e.currentTarget.style.color = '#c8c8d0' }}
-                  onMouseLeave={e => { if (imageSrc && copiedKind !== 'text') e.currentTarget.style.color = '#888890' }}
-                >
-                  {copiedKind === 'text' ? <Check size={11} strokeWidth={2.5} /> : <Type size={11} strokeWidth={1.8} />}
-                </button>
-              </Tooltip>
-              <Tooltip label="注釈付き画像をコピー">
-                <button
-                  aria-label="注釈付き画像をコピー"
-                  onClick={() => { void handleCopyImage() }}
-                  disabled={!imageSrc}
-                  style={{
-                    width: 24,
-                    height: 24,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: 'transparent',
-                    border: '1px solid #38383e',
-                    borderRadius: 4,
-                    color: imageSrc ? (copiedKind === 'image' ? '#60c060' : '#888890') : '#44444a',
-                    cursor: imageSrc ? 'pointer' : 'default',
-                    padding: 0
-                  }}
-                  onMouseEnter={e => { if (imageSrc && copiedKind !== 'image') e.currentTarget.style.color = '#c8c8d0' }}
-                  onMouseLeave={e => { if (imageSrc && copiedKind !== 'image') e.currentTarget.style.color = '#888890' }}
-                >
-                  {copiedKind === 'image' ? <Check size={11} strokeWidth={2.5} /> : <FileImage size={11} strokeWidth={1.8} />}
-                </button>
-              </Tooltip>
-              <Tooltip label="画像+テキストをコピー">
-                <button
-                  aria-label="画像+テキストをコピー"
-                  onClick={() => { void handleCopyAll() }}
-                  disabled={!imageSrc}
-                  style={{
-                    width: 24,
-                    height: 24,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: 'transparent',
-                    border: '1px solid #38383e',
-                    borderRadius: 4,
-                    color: imageSrc ? (copiedKind === 'all' ? '#60c060' : '#888890') : '#44444a',
-                    cursor: imageSrc ? 'pointer' : 'default',
-                    padding: 0
-                  }}
-                  onMouseEnter={e => { if (imageSrc && copiedKind !== 'all') e.currentTarget.style.color = '#c8c8d0' }}
-                  onMouseLeave={e => { if (imageSrc && copiedKind !== 'all') e.currentTarget.style.color = '#888890' }}
-                >
-                  {copiedKind === 'all' ? <Check size={11} strokeWidth={2.5} /> : <Layers size={11} strokeWidth={1.8} />}
-                </button>
-              </Tooltip>
-            </div>
           </div>
 
           {/* Annotation rows */}
