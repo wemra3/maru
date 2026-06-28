@@ -325,10 +325,10 @@ function CanvasPlaceholder({ onPaste }: { onPaste: () => void }) {
         height: '100%'
       }}
     >
-      <Tooltip label="クリップボードから貼り付け (⌘V)">
+      <Tooltip label="Paste from clipboard (⌘V)">
         <button
           onClick={onPaste}
-          aria-label="クリップボードから貼り付け"
+          aria-label="Paste from clipboard"
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           style={{
@@ -350,10 +350,10 @@ function CanvasPlaceholder({ onPaste }: { onPaste: () => void }) {
       </Tooltip>
       <div style={{ textAlign: 'center', lineHeight: 1.7 }}>
         <p style={{ fontSize: 13, fontWeight: 500, color: '#929298', marginBottom: 3 }}>
-          画像を貼り付け
+          Paste image
         </p>
         <p style={{ fontSize: 11, color: '#9a9aa6' }}>
-          ここをクリック または ⌘V
+          Click here or ⌘V
         </p>
       </div>
     </div>
@@ -1150,7 +1150,7 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
     <div
       ref={paneRef}
       role="region"
-      aria-label="画像キャンバス"
+      aria-label="Image canvas"
       tabIndex={-1}
       style={{
         flex: 1,
@@ -1372,8 +1372,8 @@ function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
         ref={textareaRef}
         value={ann.text}
         onChange={e => onChange(ann.id, e.target.value)}
-        aria-label={`注釈 ${ann.n} の修正内容`}
-        placeholder={`#${ann.n} の修正内容`}
+        aria-label={`Annotation ${ann.n}`}
+        placeholder={`Note for #${ann.n}`}
         rows={2}
         style={{
           flex: 1,
@@ -1401,7 +1401,7 @@ function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
           // ESC: blur textarea and return focus to canvas so ⌘V etc. resume
           if (e.key === 'Escape') {
             e.currentTarget.blur()
-            document.querySelector<HTMLElement>('[aria-label="画像キャンバス"]')?.focus()
+            document.querySelector<HTMLElement>('[aria-label="Image canvas"]')?.focus()
           }
         }}
       />
@@ -1409,9 +1409,9 @@ function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
       {/* 行右側のアクションボタン群 */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0 }}>
         {/* #7: 削除ボタン */}
-        <Tooltip label="この注釈を削除">
+        <Tooltip label="Delete">
           <button
-            aria-label={`注釈 ${ann.n} を削除`}
+            aria-label={`Delete annotation ${ann.n}`}
             onClick={() => onDelete(ann.id)}
             style={{
               width: 22,
@@ -1461,7 +1461,7 @@ function ColorsPanel({ paletteColors, pickedColors }: ColorsPanelProps) {
   function copyHex(hex: string): void {
     window.maruAPI?.writeClipboardText(hex)
     setCopiedHex(hex)
-    setAnnouncement(`${hex.toUpperCase()} をコピーしました`)
+    setAnnouncement(`Copied ${hex.toUpperCase()}`)
     setTimeout(() => {
       setCopiedHex(v => v === hex ? null : v)
       setAnnouncement('')
@@ -1519,9 +1519,9 @@ function ColorsPanel({ paletteColors, pickedColors }: ColorsPanelProps) {
       {paletteColors.length > 0 && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
           {paletteColors.map(hex => (
-            <Tooltip key={hex} label={`${hex.toUpperCase()} — クリックでコピー`}>
+            <Tooltip key={hex} label={`${hex.toUpperCase()} — click to copy`}>
               <button
-                aria-label={`${hex.toUpperCase()} をコピー`}
+                aria-label={`Copy ${hex.toUpperCase()}`}
                 onClick={() => copyHex(hex)}
                 onFocus={e => { e.currentTarget.style.outline = '2px solid #7070cc'; e.currentTarget.style.outlineOffset = '1px' }}  // WCAG 2.4.7
                 onBlur={e => { e.currentTarget.style.outline = 'none' }}
@@ -1557,9 +1557,9 @@ function ColorsPanel({ paletteColors, pickedColors }: ColorsPanelProps) {
           }}
         >
           {pickedColors.map(hex => (
-            <Tooltip key={hex} label={`${hex.toUpperCase()} (スポイト) — クリックでコピー`}>
+            <Tooltip key={hex} label={`${hex.toUpperCase()} (eyedropper) — click to copy`}>
               <button
-                aria-label={`スポイト色 ${hex.toUpperCase()} をコピー`}
+                aria-label={`Copy eyedropper color ${hex.toUpperCase()}`}
                 onClick={() => copyHex(hex)}
                 onFocus={e => { e.currentTarget.style.outline = '2px solid #7070cc'; e.currentTarget.style.outlineOffset = '1px' }}  // WCAG 2.4.7
                 onBlur={e => { e.currentTarget.style.outline = 'none' }}
@@ -1596,7 +1596,7 @@ function circledNumber(n: number): string {
 /** Build the text output: numbered lines + optional global text */
 function buildTextOutput(annotations: Annotation[], globalText: string): string {
   const lines = annotations.map(a => `${circledNumber(a.n)} ${a.text}`)
-  if (globalText.trim()) lines.push(`全体: ${globalText}`)
+  if (globalText.trim()) lines.push(`Overall: ${globalText}`)
   return lines.join('\n')
 }
 
@@ -2075,21 +2075,21 @@ export default function App() {
         >
           <IconButton
             icon={copiedKind === 'text' ? <Check size={15} strokeWidth={2.5} /> : <Type size={15} strokeWidth={1.8} />}
-            label="テキストのみコピー (⌘T)"
+            label="Copy text (⌘T)"
             onClick={handleCopyText}
             active={copiedKind === 'text'}
             disabled={!imageSrc}
           />
           <IconButton
             icon={copiedKind === 'image' ? <Check size={15} strokeWidth={2.5} /> : <FileImage size={15} strokeWidth={1.8} />}
-            label="注釈付き画像をコピー (⌘E)"
+            label="Copy annotated image (⌘E)"
             onClick={() => { void handleCopyImage() }}
             active={copiedKind === 'image'}
             disabled={!imageSrc}
           />
           <IconButton
             icon={copiedKind === 'all' ? <Check size={15} strokeWidth={2.5} /> : <Layers size={15} strokeWidth={1.8} />}
-            label="テキスト凡例付き合成画像をコピー (⌘⇧C)"
+            label="Copy image with legend (⌘⇧C)"
             onClick={() => { void handleCopyAll() }}
             active={copiedKind === 'all'}
             disabled={!imageSrc}
@@ -2172,7 +2172,7 @@ export default function App() {
           >
             <IconButton
               icon={<ClipboardPaste size={15} strokeWidth={1.8} />}
-              label="クリップボードから貼り付け (⌘V)"
+              label="Paste from clipboard (⌘V)"
               onClick={handlePaste}
             />
 
@@ -2180,20 +2180,20 @@ export default function App() {
 
             <IconButton
               icon={<MousePointer size={15} strokeWidth={1.8} />}
-              label="選択 / パン (V)"
+              label="Select / Pan (V)"
               onClick={() => { setAnnotationTool(false); setEyedropperTool(false) }}
               active={!annotationTool && !eyedropperTool}
             />
             <IconButton
               icon={<AnnotationToolIcon />}
-              label={annotationTool ? '注釈ツール ON (A) — クリック=円 / ドラッグ=矩形 / 再クリック=削除' : '注釈ツール (A)'}
+              label={annotationTool ? 'Annotate ON (A) — click=circle / drag=rect / click again=delete' : 'Annotate (A)'}
               onClick={toggleAnnotationTool}
               active={annotationTool}
               disabled={!imageSrc}
             />
             <IconButton
               icon={<Pipette size={15} strokeWidth={1.8} />}
-              label={eyedropperTool ? 'スポイト ON (I) — クリックで色取得' : 'スポイト (I)'}
+              label={eyedropperTool ? 'Eyedropper ON (I) — click to pick color' : 'Eyedropper (I)'}
               onClick={toggleEyedropperTool}
               active={eyedropperTool}
               disabled={!imageSrc}
@@ -2203,13 +2203,13 @@ export default function App() {
 
             <IconButton
               icon={<ZoomIn size={15} strokeWidth={1.8} />}
-              label="ズームイン (+)"
+              label="Zoom in (+)"
               onClick={() => canvasPaneRef.current?.zoomIn()}
               disabled={!imageSrc}
             />
             <IconButton
               icon={<ZoomOut size={15} strokeWidth={1.8} />}
-              label="ズームアウト (−)"
+              label="Zoom out (−)"
               onClick={() => canvasPaneRef.current?.zoomOut()}
               disabled={!imageSrc}
             />
@@ -2219,7 +2219,7 @@ export default function App() {
             {/* スクリーンキャプチャ */}
             <IconButton
               icon={<Camera size={15} strokeWidth={1.8} />}
-              label="スクリーンキャプチャして新規ウィンドウへ (S)"
+              label="Capture screen to new window (S)"
               onClick={() => { void handleCapture() }}
             />
           </div>
@@ -2228,7 +2228,7 @@ export default function App() {
         {/* Splitter — draggable vertical divider between canvas and inspector */}
         <div
           role="separator"
-          aria-label="インスペクタ幅調整"
+          aria-label="Resize inspector"
           aria-orientation="vertical"
           onMouseDown={onSplitterMouseDown}
           style={{
@@ -2277,7 +2277,7 @@ export default function App() {
                 pointerEvents: 'none'
               }}
             >
-              これ以上追加できません（最大{MAX_ANNOTATIONS}）
+              Maximum {MAX_ANNOTATIONS} annotations
             </div>
           )}
 
@@ -2300,7 +2300,7 @@ export default function App() {
                 }}
               >
                 <Circle size={22} strokeWidth={1.2} color="#38383e" />
-                <span style={{ color: '#909098' }}>注釈を追加すると入力欄が現れます</span>
+                <span style={{ color: '#909098' }}>Add an annotation to get started</span>
               </div>
             ) : (
               annotations.map((ann, idx) => (
@@ -2323,9 +2323,9 @@ export default function App() {
               padding: '6px 12px',
               flexShrink: 0
             }}>
-              <Tooltip label="全注釈を消去">
+              <Tooltip label="Clear all">
                 <button
-                  aria-label="全注釈を消去"
+                  aria-label="Clear all annotations"
                   onClick={() => setAnnotations([])}
                   style={{
                     display: 'flex',
@@ -2381,13 +2381,13 @@ export default function App() {
                 marginBottom: 6
               }}
             >
-              全体コメント
+              Overall comment
             </label>
             <textarea
               id="global-text"
               value={globalText}
               onChange={e => setGlobalText(e.target.value)}
-              placeholder="画像全体への補足・コンテキスト"
+              placeholder="Additional context for the image"
               rows={3}
               style={{
                 width: '100%',
@@ -2416,7 +2416,7 @@ export default function App() {
                 // ESC: blur textarea and return focus to canvas so ⌘V etc. resume (Fix #8)
                 if (e.key === 'Escape') {
                   e.currentTarget.blur()
-                  document.querySelector<HTMLElement>('[aria-label="画像キャンバス"]')?.focus()
+                  document.querySelector<HTMLElement>('[aria-label="Image canvas"]')?.focus()
                 }
               }}
             />
