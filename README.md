@@ -85,6 +85,16 @@ The DMG is output to `release/`.
 
 ---
 
+## Support
+
+maru is free and open source. If it saves you time, you can support its development:
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-ff40d0?logo=github)](https://github.com/sponsors/wemra3)
+
+No paywalls, no tracking — entirely local. ☕
+
+---
+
 ## License
 
 [MIT](LICENSE) © 2026 wemra
