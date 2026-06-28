@@ -734,6 +734,7 @@ interface CanvasPaneHandle {
   zoomIn(): void
   zoomOut(): void
   getOffscreen(): HTMLCanvasElement | null
+  getScale(): number
 }
 
 interface DrawState {
@@ -896,6 +897,9 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
     },
     getOffscreen() {
       return offscreenRef.current
+    },
+    getScale() {
+      return scaleRef.current
     }
   }))
 
@@ -1359,10 +1363,8 @@ function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
           letterSpacing: '-0.01em'
         }}
       >
-        {/* Optical centering: shift number glyph up ~7% of font-size (matches SVG dy="-0.07em") */}
-        <span style={{ display: 'inline-block', transform: 'translateY(-0.07em)' }}>
-          {ann.n}
-        </span>
+        {/* HTML flex centering suffices here — no dy offset needed (SVG/canvas apply their own corrections) */}
+        {ann.n}
       </div>
 
       {/* Text input */}
@@ -1635,25 +1637,38 @@ function drawBadgeCtx(
 
 /**
  * Render the base image + all annotation markers + adjacent badges onto a new canvas
- * at native image resolution. Returns a PNG data URL.
+ * reproducing the current display scale. Returns a PNG data URL.
+ *
+ * Geometry contract (matches on-screen rendering):
+ *   - Output canvas: naturalWidth * scale * dpr × naturalHeight * scale * dpr (+ legend strip)
+ *   - Image: drawn at full output dims
+ *   - Marker positions: ann.x * scale * dpr, ann.y * scale * dpr  (image coords → output px)
+ *   - Marker/badge radii: CIRCLE_VR * dpr, BADGE_VR * dpr  (screen-fixed size × dpr — scale-invariant)
+ *   - Pan offset (ox/oy) is NOT applied — always export entire image without viewport crop
+ *
  * If legendLines is provided, a text legend strip is burned below the image (v3-C copy-all).
  */
 function buildAnnotatedCanvas(
   imageSrc: string,
   annotations: Annotation[],
   offscreen: HTMLCanvasElement | null,
+  scale: number = 1,
   legendLines?: string[]
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new globalThis.Image()
     img.onload = () => {
-      // Scale visual constants from screen-px to image-px (Retina screenshots are 2x)
       const dpr = window.devicePixelRatio || 1
+      // Output dimensions: display-scale × dpr for sharpness
+      const scaledW = Math.round(img.naturalWidth * scale * dpr)
+      const scaledH = Math.round(img.naturalHeight * scale * dpr)
+
+      // Visual constants — screen-px × dpr (scale-invariant, same appearance as on-screen)
       const circleVR = CIRCLE_VR * dpr
       const badgeVR = BADGE_VR * dpr
       const badgeFontVR = BADGE_FONT_VR * dpr
 
-      // Legend layout (burned below image when legendLines provided)
+      // Legend layout (burned below scaled image when legendLines provided)
       const hasLegend = legendLines && legendLines.length > 0
       const legendFontSz = Math.round(14 * dpr)
       const legendLineH = Math.ceil(legendFontSz * 1.7)
@@ -1663,7 +1678,7 @@ function buildAnnotatedCanvas(
       const legendBadgeR = Math.round(7 * dpr)
       const legendBadgeFontSz = Math.round(8 * dpr)
       const legendTextX = legendPadX + legendBadgeR * 2 + Math.round(8 * dpr)
-      const legendMaxW = img.naturalWidth - legendTextX - legendPadX
+      const legendMaxW = Math.max(80, scaledW - legendTextX - legendPadX)
       const legendFont = `300 ${legendFontSz}px "Inter Variable", Inter, -apple-system, sans-serif`
 
       // 文字単位の折り返し（日本語=空白なしに対応）。canvas2dのmaxWidthによる横圧縮(長体)を回避
@@ -1699,52 +1714,62 @@ function buildAnnotatedCanvas(
         : 0
 
       const canvas = document.createElement('canvas')
-      canvas.width = img.naturalWidth
-      canvas.height = img.naturalHeight + legendH
+      canvas.width = scaledW
+      canvas.height = scaledH + legendH
       const ctx = canvas.getContext('2d')!
-      ctx.drawImage(img, 0, 0)
+      // Draw image at display scale
+      ctx.drawImage(img, 0, 0, scaledW, scaledH)
 
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
 
       for (const ann of annotations) {
+        // Adaptive colors sample from offscreen (natural-resolution) using image coords — unchanged
         const { stroke, halo } = getAdaptiveColors(offscreen, ann)
 
         ctx.save()
 
+        // Convert image coords → output canvas px
+        const outX = ann.x * scale * dpr
+        const outY = ann.y * scale * dpr
+
         if (ann.kind === 'circle') {
           const r = circleVR
           // halo ring
-          ctx.beginPath(); ctx.arc(ann.x, ann.y, r, 0, Math.PI * 2)
+          ctx.beginPath(); ctx.arc(outX, outY, r, 0, Math.PI * 2)
           ctx.strokeStyle = halo; ctx.lineWidth = HALO_STROKE_W * dpr; ctx.stroke()
           // marker ring
-          ctx.beginPath(); ctx.arc(ann.x, ann.y, r, 0, Math.PI * 2)
+          ctx.beginPath(); ctx.arc(outX, outY, r, 0, Math.PI * 2)
           ctx.strokeStyle = stroke; ctx.lineWidth = MARKER_STROKE_W * dpr; ctx.stroke()
-          // badge (adjacent: top-right of circle)
-          drawBadgeCtx(ctx, ann.x + r + badgeVR * 0.6, ann.y - r - badgeVR * 0.6, badgeVR, ann.n, stroke, badgeFontVR)
+          // badge (adjacent: top-right of circle — same geometry as AnnotationShape)
+          drawBadgeCtx(ctx, outX + r + badgeVR * 0.6, outY - r - badgeVR * 0.6, badgeVR, ann.n, stroke, badgeFontVR)
         } else {
+          // Rect dims in output px
+          const rw = ann.w * scale * dpr
+          const rh = ann.h * scale * dpr
+          const rx = RECT_RX * scale * dpr
           // halo rect
-          ctx.beginPath(); roundRectPath(ctx, ann.x, ann.y, ann.w, ann.h, RECT_RX)
+          ctx.beginPath(); roundRectPath(ctx, outX, outY, rw, rh, rx)
           ctx.strokeStyle = halo; ctx.lineWidth = HALO_STROKE_W * dpr; ctx.stroke()
           // marker rect
-          ctx.beginPath(); roundRectPath(ctx, ann.x, ann.y, ann.w, ann.h, RECT_RX)
+          ctx.beginPath(); roundRectPath(ctx, outX, outY, rw, rh, rx)
           ctx.strokeStyle = stroke; ctx.lineWidth = MARKER_STROKE_W * dpr; ctx.stroke()
           // badge (adjacent: top-right of rect)
-          drawBadgeCtx(ctx, ann.x + ann.w + badgeVR * 0.6, ann.y - badgeVR * 0.6, badgeVR, ann.n, stroke, badgeFontVR)
+          drawBadgeCtx(ctx, outX + rw + badgeVR * 0.6, outY - badgeVR * 0.6, badgeVR, ann.n, stroke, badgeFontVR)
         }
 
         ctx.restore()
       }
 
-      // Burn legend strip below image (v3-C) — 折り返し済み・maxWidth不使用で長体回避
+      // Burn legend strip below scaled image (v3-C) — 折り返し済み・maxWidth不使用で長体回避
       if (hasLegend && legendEntries.length) {
         ctx.fillStyle = '#1e1e20'
-        ctx.fillRect(0, img.naturalHeight, canvas.width, legendH)
+        ctx.fillRect(0, scaledH, canvas.width, legendH)
 
         let lineIdx = 0
         for (const entry of legendEntries) {
           for (let s = 0; s < entry.sublines.length; s++) {
-            const cy = img.naturalHeight + legendPadTop + lineIdx * legendLineH + legendLineH / 2
+            const cy = scaledH + legendPadTop + lineIdx * legendLineH + legendLineH / 2
             if (s === 0 && entry.n !== null) {
               drawBadgeCtx(ctx, legendPadX + legendBadgeR, cy, legendBadgeR, entry.n, STROKE_ON_DARK, legendBadgeFontSz)
             }
@@ -1845,7 +1870,8 @@ export default function App() {
   async function handleCopyImage(): Promise<void> {
     if (!imageSrc) return
     const offscreen = canvasPaneRef.current?.getOffscreen() ?? null
-    const dataUrl = await buildAnnotatedCanvas(imageSrc, annotations, offscreen)
+    const scale = canvasPaneRef.current?.getScale() ?? 1
+    const dataUrl = await buildAnnotatedCanvas(imageSrc, annotations, offscreen, scale)
     window.maruAPI?.writeClipboardImage(dataUrl)
     triggerCopyFeedback('image')  // #3
   }
@@ -1853,10 +1879,11 @@ export default function App() {
   async function handleCopyAll(): Promise<void> {
     if (!imageSrc) return
     const offscreen = canvasPaneRef.current?.getOffscreen() ?? null
+    const scale = canvasPaneRef.current?.getScale() ?? 1
     // v3-C: 注釈付き画像の下にテキスト凡例を焼き込んだ1枚の合成画像を生成
     const legendText = buildTextOutput(annotations, globalText)
     const legendLines = legendText ? legendText.split('\n') : []
-    const dataUrl = await buildAnnotatedCanvas(imageSrc, annotations, offscreen, legendLines)
+    const dataUrl = await buildAnnotatedCanvas(imageSrc, annotations, offscreen, scale, legendLines)
     window.maruAPI?.writeClipboardImage(dataUrl)  // 単一PNG (旧: writeClipboardBoth)
     triggerCopyFeedback('all')  // #3
   }
