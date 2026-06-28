@@ -1749,6 +1749,35 @@ export default function App() {
   const canvasPaneRef = useRef<CanvasPaneHandle>(null)
   // Tracks whether an image is loaded — used in keyboard handler to avoid stale closure
   const hasImageRef = useRef<boolean>(false)
+
+  // Inspector width (splitter drag — G)
+  const [inspectorWidth, setInspectorWidth] = useState(280)
+  const [isDraggingSplitter, setIsDraggingSplitter] = useState(false)
+  const splitterDragRef = useRef<{ startX: number; startW: number } | null>(null)
+
+  function onSplitterMouseDown(e: React.MouseEvent): void {
+    e.preventDefault()
+    splitterDragRef.current = { startX: e.clientX, startW: inspectorWidth }
+    setIsDraggingSplitter(true)
+
+    function onMouseMove(me: MouseEvent): void {
+      if (!splitterDragRef.current) return
+      // Dragging left → wider inspector
+      const delta = splitterDragRef.current.startX - me.clientX
+      const newW = Math.min(560, Math.max(280, splitterDragRef.current.startW + delta))
+      setInspectorWidth(newW)
+    }
+
+    function onMouseUp(): void {
+      splitterDragRef.current = null
+      setIsDraggingSplitter(false)
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }
   useEffect(() => { hasImageRef.current = !!imageSrc }, [imageSrc])
 
   // Refs for inspector text inputs (for auto-focus)
@@ -1939,7 +1968,8 @@ export default function App() {
         flexDirection: 'column',
         height: '100vh',
         background: '#1e1e20',
-        color: '#e0e0e4'
+        color: '#e0e0e4',
+        ...(isDraggingSplitter ? { cursor: 'col-resize', userSelect: 'none' } : {})
       }}
     >
       {/* ── Title bar ── */}
@@ -2139,13 +2169,34 @@ export default function App() {
           </div>
         </div>
 
-        {/* Divider */}
-        <div style={{ width: 1, background: '#2e2e32', flexShrink: 0 }} />
+        {/* Splitter — draggable vertical divider between canvas and inspector */}
+        <div
+          role="separator"
+          aria-label="インスペクタ幅調整"
+          aria-orientation="vertical"
+          onMouseDown={onSplitterMouseDown}
+          style={{
+            width: 5,
+            flexShrink: 0,
+            cursor: 'col-resize',
+            position: 'relative',
+            zIndex: 10,
+            background: 'transparent'
+          }}
+        >
+          {/* Visible 1px line inside the 5px hit area */}
+          <div style={{
+            position: 'absolute',
+            top: 0, bottom: 0,
+            left: 2, width: 1,
+            background: '#2e2e32'
+          }} />
+        </div>
 
         {/* Inspector pane */}
         <div
           style={{
-            width: 280,
+            width: inspectorWidth,
             flexShrink: 0,
             background: '#232325',
             display: 'flex',
