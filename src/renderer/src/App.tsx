@@ -1976,7 +1976,7 @@ export default function App() {
       {/* ── Main area ── */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Canvas area wrapper — relative for floating toolbar */}
-        <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
           <CanvasPane
             ref={canvasPaneRef}
             imageSrc={imageSrc}
