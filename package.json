@@ -6,7 +6,26 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "tsc --noEmit && electron-vite build",
-    "preview": "electron-vite preview"
+    "preview": "electron-vite preview",
+    "dist": "electron-vite build && electron-builder --mac dmg"
+  },
+  "build": {
+    "appId": "com.wemra.maru",
+    "productName": "maru",
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "files": [
+      "out/**",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.png",
+      "category": "public.app-category.productivity",
+      "identity": null
+    }
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
@@ -20,6 +39,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "electron": "^31.0.0",
+    "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
     "typescript": "^5.5.2"
   }
