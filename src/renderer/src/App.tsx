@@ -19,9 +19,7 @@ import {
   Layers,
   Pipette,
   Check,
-  Camera,
-  Mic,
-  MicOff
+  Camera
 } from 'lucide-react'
 
 // maruAPI / webkitSpeechRecognition の型は src/renderer/src/env.d.ts で宣言済み
@@ -1267,34 +1265,6 @@ interface AnnRowProps {
 }
 
 function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
-  // #8: 音声入力 (webkitSpeechRecognition は any 型)
-  const [listening, setListening] = useState(false)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const recRef = useRef<any>(null)
-  const speechAvailable = typeof window !== 'undefined' && 'webkitSpeechRecognition' in window
-
-  function toggleMic(): void {
-    if (listening) {
-      recRef.current?.stop()
-      setListening(false)
-      return
-    }
-    const Rec = window.webkitSpeechRecognition
-    const rec = new Rec()
-    rec.lang = 'ja-JP'
-    rec.interimResults = false
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rec.onresult = (ev: any) => {
-      const transcript = ev.results[0][0].transcript as string
-      onChange(ann.id, ann.text ? ann.text + ' ' + transcript : transcript)
-    }
-    rec.onend = () => setListening(false)
-    rec.onerror = () => setListening(false)
-    recRef.current = rec
-    rec.start()
-    setListening(true)
-  }
-
   return (
     <div
       style={{
@@ -1394,32 +1364,6 @@ function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
           </button>
         </Tooltip>
 
-        {/* #8: 音声入力ボタン */}
-        {speechAvailable && (
-          <Tooltip label={listening ? '録音停止' : '音声入力'}>
-            <button
-              aria-label={listening ? '音声入力を停止' : '音声入力を開始'}
-              onClick={toggleMic}
-              style={{
-                width: 22,
-                height: 22,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: listening ? '#2a1040' : 'transparent',
-                border: `1px solid ${listening ? '#7040c0' : '#38383e'}`,
-                borderRadius: 4,
-                color: listening ? '#c080ff' : '#888890',
-                cursor: 'pointer',
-                padding: 0
-              }}
-              onMouseEnter={e => { if (!listening) e.currentTarget.style.color = '#c8c8d0' }}
-              onMouseLeave={e => { if (!listening) e.currentTarget.style.color = '#888890' }}
-            >
-              {listening ? <MicOff size={11} strokeWidth={2} /> : <Mic size={11} strokeWidth={2} />}
-            </button>
-          </Tooltip>
-        )}
       </div>
     </div>
   )
