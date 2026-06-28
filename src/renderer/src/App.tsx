@@ -2,6 +2,7 @@ import React, {
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   forwardRef,
   useImperativeHandle,
   useCallback
@@ -14,6 +15,7 @@ import {
   Circle,
   MousePointer,
   X,
+  Trash2,
   Type,
   FileImage,
   Layers,
@@ -141,6 +143,9 @@ let _tipCounter = 0
 function Tooltip({ label, children }: TooltipProps) {
   const [visible, setVisible] = useState(false)
   const [pos, setPos] = useState({ top: 0, left: 0 })
+  // Horizontal correction so tooltip never bleeds off viewport edge
+  const [clampDx, setClampDx] = useState(0)
+  const tipElRef = useRef<HTMLDivElement | null>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
   const tipIdRef = useRef<string>('')
   if (!tipIdRef.current) tipIdRef.current = `tip-${++_tipCounter}`
@@ -150,12 +155,25 @@ function Tooltip({ label, children }: TooltipProps) {
     if (wrapRef.current) {
       const rect = wrapRef.current.getBoundingClientRect()
       setPos({
-        top: rect.top - 6,   // will be adjusted via transform
+        top: rect.top - 6,
         left: rect.left + rect.width / 2
       })
+      setClampDx(0)
     }
     setVisible(true)
   }
+
+  // After tooltip mounts, measure and clamp horizontally (Fix #9)
+  useLayoutEffect(() => {
+    if (!visible || !tipElRef.current) return
+    const rect = tipElRef.current.getBoundingClientRect()
+    const vw = window.innerWidth
+    const margin = 8
+    let dx = 0
+    if (rect.right > vw - margin) dx = (vw - margin) - rect.right
+    if (rect.left < margin) dx = margin - rect.left
+    if (Math.abs(dx) > 0.5) setClampDx(dx)
+  }, [visible, pos])
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const child = React.Children.only(children) as React.ReactElement<any>
@@ -176,12 +194,13 @@ function Tooltip({ label, children }: TooltipProps) {
       {childWithAria}
       {visible && createPortal(
         <div
+          ref={tipElRef}
           id={tipId}
           role="tooltip"
           style={{
             position: 'fixed',
             top: pos.top,
-            left: pos.left,
+            left: pos.left + clampDx,
             transform: 'translate(-50%, -100%)',
             marginTop: -6,
             background: '#3c3c40',
@@ -273,13 +292,14 @@ function ToolbarDivider() {
 function AnnotationToolIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" />
       <text
         x="12"
         y="12"
         textAnchor="middle"
         dominantBaseline="central"
-        fontSize="11"
+        dy="-0.07em"
+        fontSize="13"
         fontWeight="600"
         fontFamily="system-ui, -apple-system, sans-serif"
         fill="currentColor"
@@ -633,6 +653,7 @@ function AnnotationShape({ ann, scale, offscreen, placement, isNew = false }: An
             x={bx} y={by}
             textAnchor="middle"
             dominantBaseline="central"
+            dy="-0.07em"
             fontSize={bf}
             fontFamily="-apple-system, BlinkMacSystemFont, sans-serif"
             fontWeight="700"
@@ -688,6 +709,7 @@ function GutterLayer({ annotations, placements }: GutterLayerProps) {
               x={bx} y={by}
               textAnchor="middle"
               dominantBaseline="central"
+              dy="-0.07em"
               fontSize={BADGE_FONT_VR}
               fontFamily="-apple-system, BlinkMacSystemFont, sans-serif"
               fontWeight="700"
@@ -773,6 +795,11 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
   const [newlyAddedId, setNewlyAddedId] = useState<string | null>(null)
   const newlyAddedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Fix #2: hide img until fitScale/offset are applied to prevent left-flash on paste
+  const [imageFitted, setImageFitted] = useState(false)
+  // Fix #7: image info overlay (dimensions + size)
+  const [imageInfo, setImageInfo] = useState<{ w: number; h: number; sizeKB: number } | null>(null)
+
   function applyTransform(ns: number, nox: number, noy: number): void {
     scaleRef.current = ns
     offsetRef.current = { x: nox, y: noy }
@@ -782,6 +809,9 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
 
   // Fit image to pane when a new imageSrc arrives and build offscreen canvas
   useEffect(() => {
+    // Fix #2: reset fitted flag so img stays hidden until transform is computed
+    setImageFitted(false)
+    setImageInfo(null)
     if (!imageSrc || !paneRef.current) return
     const pane = paneRef.current
     const img = new Image()
@@ -803,6 +833,11 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
       const ox = (pw - img.naturalWidth * fitScale) / 2
       const oy = (ph - img.naturalHeight * fitScale) / 2
       applyTransform(fitScale, ox, oy)
+      // Fix #2: reveal image only after transform is committed
+      setImageFitted(true)
+      // Fix #7: store image dimensions + estimated file size
+      const sizeKB = Math.round(imageSrc.length * 0.75 / 1024)
+      setImageInfo({ w: img.naturalWidth, h: img.naturalHeight, sizeKB })
     }
     img.src = imageSrc
   }, [imageSrc]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1112,12 +1147,14 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
       ref={paneRef}
       role="region"
       aria-label="画像キャンバス"
+      tabIndex={-1}
       style={{
         flex: 1,
         minWidth: 0,
         background: '#2b2b2e',
         position: 'relative',
         overflow: 'hidden',
+        outline: 'none',
         cursor
       }}
       onMouseDown={onMouseDown}
@@ -1139,7 +1176,9 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
               maxWidth: 'none', maxHeight: 'none',
               display: 'block',
               userSelect: 'none',
-              pointerEvents: 'none'
+              pointerEvents: 'none',
+              // Fix #2: hide until fitScale/offset are applied — prevents left-flash on paste
+              visibility: imageFitted ? 'visible' : 'hidden'
             }}
           />
 
@@ -1247,6 +1286,32 @@ const CanvasPane = forwardRef<CanvasPaneHandle, CanvasPaneProps>(function Canvas
               {eyeHover.hex.toUpperCase()}
             </div>
           )}
+
+          {/* Fix #7: image info overlay — bottom-left, subtle */}
+          {imageInfo && imageFitted && (
+            <div
+              aria-hidden="true"
+              style={{
+                position: 'absolute',
+                bottom: 64,  // above floating toolbar (bottom:16 + height:40 + gap:8)
+                left: 10,
+                fontSize: 10,
+                fontFamily: 'monospace',
+                color: 'rgba(200,200,210,0.40)',
+                pointerEvents: 'none',
+                userSelect: 'none',
+                lineHeight: 1.4,
+                zIndex: 50,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {imageInfo.w} × {imageInfo.h} px
+              {' · '}
+              {imageInfo.sizeKB >= 1024
+                ? `${(imageInfo.sizeKB / 1024).toFixed(1)} MB`
+                : `${imageInfo.sizeKB} KB`}
+            </div>
+          )}
         </>
       ) : (
         <CanvasPlaceholder onPaste={onPaste} />
@@ -1294,7 +1359,10 @@ function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
           letterSpacing: '-0.01em'
         }}
       >
-        {ann.n}
+        {/* Optical centering: shift number glyph up ~7% of font-size (matches SVG dy="-0.07em") */}
+        <span style={{ display: 'inline-block', transform: 'translateY(-0.07em)' }}>
+          {ann.n}
+        </span>
       </div>
 
       {/* Text input */}
@@ -1326,6 +1394,13 @@ function AnnRow({ ann, textareaRef, onChange, onDelete }: AnnRowProps) {
         onBlur={e => {
           e.currentTarget.style.borderColor = '#38383e'
           e.currentTarget.style.outline = 'none'
+        }}
+        onKeyDown={e => {
+          // ESC: blur textarea and return focus to canvas so ⌘V etc. resume
+          if (e.key === 'Escape') {
+            e.currentTarget.blur()
+            document.querySelector<HTMLElement>('[aria-label="画像キャンバス"]')?.focus()
+          }
         }}
       />
 
@@ -1554,7 +1629,8 @@ function drawBadgeCtx(
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillStyle = badgeTextFill(fill)
-  ctx.fillText(String(n), bx, by)
+  // Optical centering: shift text up by ~7% of font size (matches SVG dy="-0.07em")
+  ctx.fillText(String(n), bx, by - fontSz * 0.07)
 }
 
 /**
@@ -1685,7 +1761,7 @@ function buildAnnotatedCanvas(
 export default function App() {
   const [imageSrc, setImageSrc] = useState<string | null>(null)
   const [annotations, setAnnotations] = useState<Annotation[]>([])
-  const [annotationTool, setAnnotationTool] = useState(false)
+  const [annotationTool, setAnnotationTool] = useState(true)  // Fix #3: 起動時から注釈ツールON
   const [eyedropperTool, setEyedropperTool] = useState(false)
   const [paletteColors, setPaletteColors] = useState<string[]>([])
   const [pickedColors, setPickedColors] = useState<string[]>([])
@@ -2191,54 +2267,59 @@ export default function App() {
                 <span style={{ color: '#909098' }}>注釈を追加すると入力欄が現れます</span>
               </div>
             ) : (
-              <>
-                {annotations.map((ann, idx) => (
-                  <AnnRow
-                    key={ann.id}
-                    ann={ann}
-                    textareaRef={el => { textareaRefs.current[idx] = el }}
-                    onChange={handleAnnotationTextChange}
-                    onDelete={handleDeleteAnnotation}
-                  />
-                ))}
-
-                {/* Clear-all button when annotations present */}
-                <div style={{ padding: '8px 14px' }}>
-                  <Tooltip label="全注釈を削除">
-                    <button
-                      aria-label="全注釈を削除"
-                      onClick={() => setAnnotations([])}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: 28,
-                        height: 28,
-                        background: 'transparent',
-                        border: '1px solid #38383e',
-                        borderRadius: 6,
-                        color: '#909098',  // SC 1.4.3: ≥4.5:1 on #232325 (4.95:1) ✓
-                        cursor: 'pointer',
-                        padding: 0
-                      }}
-                      onMouseEnter={e => {
-                        e.currentTarget.style.borderColor = '#5a3e00'
-                        e.currentTarget.style.color = '#e07c00'  // amber: CVD-safe, not red/green
-                        e.currentTarget.style.background = '#2a2000'
-                      }}
-                      onMouseLeave={e => {
-                        e.currentTarget.style.borderColor = '#38383e'
-                        e.currentTarget.style.color = '#909098'
-                        e.currentTarget.style.background = 'transparent'
-                      }}
-                    >
-                      <X size={13} strokeWidth={2} />
-                    </button>
-                  </Tooltip>
-                </div>
-              </>
+              annotations.map((ann, idx) => (
+                <AnnRow
+                  key={ann.id}
+                  ann={ann}
+                  textareaRef={el => { textareaRefs.current[idx] = el }}
+                  onChange={handleAnnotationTextChange}
+                  onDelete={handleDeleteAnnotation}
+                />
+              ))
             )}
           </div>
+
+          {/* Fix #10a: clear-all anchored below scroll area (not floating in scroll).
+              Fix #10b: Trash2 icon distinguishes from per-row X (individual delete). */}
+          {annotations.length > 0 && (
+            <div style={{
+              borderTop: '1px solid #282830',
+              padding: '6px 12px',
+              flexShrink: 0
+            }}>
+              <Tooltip label="全注釈を消去">
+                <button
+                  aria-label="全注釈を消去"
+                  onClick={() => setAnnotations([])}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 28,
+                    height: 28,
+                    background: 'transparent',
+                    border: '1px solid #38383e',
+                    borderRadius: 6,
+                    color: '#909098',  // SC 1.4.3: ≥4.5:1 on #232325 (4.95:1) ✓
+                    cursor: 'pointer',
+                    padding: 0
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.borderColor = '#5a3e00'
+                    e.currentTarget.style.color = '#e07c00'  // amber: CVD-safe, not red/green
+                    e.currentTarget.style.background = '#2a2000'
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.borderColor = '#38383e'
+                    e.currentTarget.style.color = '#909098'
+                    e.currentTarget.style.background = 'transparent'
+                  }}
+                >
+                  <Trash2 size={13} strokeWidth={2} />
+                </button>
+              </Tooltip>
+            </div>
+          )}
 
           {/* Colors section */}
           <ColorsPanel paletteColors={paletteColors} pickedColors={pickedColors} />
@@ -2294,6 +2375,13 @@ export default function App() {
               onBlur={e => {
                 e.currentTarget.style.borderColor = '#38383e'
                 e.currentTarget.style.outline = 'none'
+              }}
+              onKeyDown={e => {
+                // ESC: blur textarea and return focus to canvas so ⌘V etc. resume (Fix #8)
+                if (e.key === 'Escape') {
+                  e.currentTarget.blur()
+                  document.querySelector<HTMLElement>('[aria-label="画像キャンバス"]')?.focus()
+                }
               }}
             />
           </div>

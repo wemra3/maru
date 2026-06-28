@@ -10,6 +10,8 @@ function createWindow(): BrowserWindow {
     minHeight: 600,
     backgroundColor: '#1e1e20',
     titleBarStyle: 'hiddenInset',
+    // Fix #6: app icon (effective in dock during dev; .icns needed for production packaging)
+    icon: join(__dirname, '../../build/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

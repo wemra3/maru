@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Rounded square background — dark charcoal matching app bg -->
+  <rect width="1024" height="1024" rx="224" ry="224" fill="#1e1e20"/>
+  <!-- Marker badge circle — hot magenta (CVD-safe: no red/green dependency) -->
+  <circle cx="512" cy="512" r="380" fill="#ff40d0"/>
+  <!-- Number "1" — black on magenta = 6.9:1 contrast (WCAG AA ✓) -->
+  <text
+    x="512"
+    y="512"
+    text-anchor="middle"
+    dominant-baseline="central"
+    font-size="500"
+    font-weight="700"
+    font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif"
+    fill="#000000"
+    dy="-0.04em"
+  >1</text>
+</svg>
