@@ -44,9 +44,28 @@ button:focus-visible {
   background: #4a4a52;
 }
 
-/* ── Textarea placeholder ───────────────────────────────────────────────── */
+/* ── Textarea ───────────────────────────────────────────────────────────── */
+textarea {
+  /* Override the global user-select:none so resize-handle drag initiates correctly */
+  user-select: text;
+}
+
 textarea::placeholder {
   color: #909098;  /* WCAG 1.4.3: ≈5.25:1 on #1e1e20 ✓ (旧 #72727a は ≈3.49:1 で違反) */
+}
+
+/* Make the native resize grip visible on the dark background.
+   Diagonal stripe pattern in the bottom-right corner of each textarea. */
+textarea::-webkit-resizer {
+  background-color: transparent;
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0px,
+    transparent 2.5px,
+    #52525e 2.5px,
+    #52525e 3.5px
+  );
+  border-radius: 0 0 5px 0;
 }
 
 /* ── Text selection ─────────────────────────────────────────────────────── */
