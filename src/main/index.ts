@@ -29,6 +29,7 @@ function createWindow(): BrowserWindow {
   // navigation (e.g. file://...index.html#section) is not silently blocked.
   mainWindow.webContents.on('will-navigate', (e, url) => {
     const current = mainWindow.webContents.getURL()
+    if (!current) return  // initial load (no current URL yet) — never block the app's own first load
     try {
       const newUrl = new URL(url)
       const curUrl = new URL(current)

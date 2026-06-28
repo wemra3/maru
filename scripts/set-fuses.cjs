@@ -45,10 +45,13 @@ async function afterPack(context) {
     [FuseV1Options.EnableCookieEncryption]: true,
     [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
     [FuseV1Options.EnableNodeCliInspectArguments]: false,
-    [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
+    // maru loads its UI via loadFile (file://). These two MUST allow that:
+    //  - integrity validation off → avoids asar integrity-mismatch load failures
+    //  - file:// keeps extra privileges → else "Not allowed to load local resource" = blank window
+    [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: false,
     [FuseV1Options.OnlyLoadAppFromAsar]: true,
     [FuseV1Options.LoadBrowserProcessSpecificV8Snapshot]: false,
-    [FuseV1Options.GrantFileProtocolExtraPrivileges]: false
+    [FuseV1Options.GrantFileProtocolExtraPrivileges]: true
   })
 
   console.log('[set-fuses] Fuses applied successfully.')
