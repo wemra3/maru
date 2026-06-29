@@ -33,15 +33,25 @@ maru is purpose-built for that handoff. Paste a screenshot, stamp numbered marke
 
 ## Install
 
-Download the latest `maru-*.dmg` from [Releases](../../releases), open it, and drag **maru** into `/Applications`.
+1. **Download the right build** from [Releases](../../releases):
+   - **Apple Silicon** (M1–M4): `maru-*-arm64.dmg`
+   - **Intel**: `maru-*.dmg`
 
-maru is ad-hoc signed but **not notarized by Apple**, so macOS quarantines it on first launch and shows *"Apple could not verify maru is free of malware."* Clear the quarantine flag once — the fastest way is one line in Terminal:
+   Not sure which Mac you have? Run `uname -m` in Terminal — `arm64` = Apple Silicon, `x86_64` = Intel.
 
-```bash
-xattr -cr /Applications/maru.app
-```
+2. **Open the dmg and drag maru into `/Applications`.**
 
-Then open maru normally. (GUI alternative: **System Settings → Privacy & Security**, scroll to the message about `maru.app`, click **Open Anyway**, then reopen maru and click **Open**.) You only need to do this once.
+3. **Clear the quarantine flag.** maru is ad-hoc signed but **not notarized by Apple**, so on first launch macOS quarantines it and shows *"Apple could not verify maru is free of malware."* Remove the flag once in Terminal:
+
+   ```bash
+   xattr -cr /Applications/maru.app
+   ```
+
+   GUI alternative: **System Settings → Privacy & Security**, scroll to the message about `maru.app`, click **Open Anyway**, then reopen maru and click **Open**.
+
+4. **Open maru.** You only need to do steps 3–4 once.
+
+> Why the extra step? Notarizing an app requires a paid Apple Developer account ($99/yr). maru is free and unfunded, so it ships ad-hoc signed instead — the `xattr` line above is the one-time cost of that.
 
 ---
 
