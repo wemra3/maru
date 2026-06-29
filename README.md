@@ -33,9 +33,15 @@ maru is purpose-built for that handoff. Paste a screenshot, stamp numbered marke
 
 ## Install
 
-Download the latest `maru-*.dmg` from [Releases](../../releases).
+Download the latest `maru-*.dmg` from [Releases](../../releases), open it, and drag **maru** into `/Applications`.
 
-**Note: maru is unsigned.** macOS blocks it on first launch. On macOS 15 (Sequoia) the old right-click → Open trick no longer works — instead open **System Settings → Privacy & Security**, scroll to the message about `maru.app`, and click **Open Anyway**, then reopen maru and click **Open**. (Developer shortcut: `xattr -dr com.apple.quarantine /Applications/maru.app`.) You only need to do this once.
+maru is ad-hoc signed but **not notarized by Apple**, so macOS quarantines it on first launch and shows *"Apple could not verify maru is free of malware."* Clear the quarantine flag once — the fastest way is one line in Terminal:
+
+```bash
+xattr -cr /Applications/maru.app
+```
+
+Then open maru normally. (GUI alternative: **System Settings → Privacy & Security**, scroll to the message about `maru.app`, click **Open Anyway**, then reopen maru and click **Open**.) You only need to do this once.
 
 ---
 
